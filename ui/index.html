@@ -1,0 +1,1239 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EchoFlow - 沉浸式英语口语训练</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        brand: {
+                            50: '#f9fafb',
+                            100: '#f3f4f6',
+                            200: '#e5e7eb',
+                            300: '#d1d5db',
+                            400: '#9ca3af',
+                            500: '#6b7280',
+                            600: '#4b5563',
+                            700: '#374151',
+                            800: '#1f2937',
+                            900: '#111827',
+                            950: '#030712',
+                        },
+                        // Dark Mode Palette (Zinc/Industrial)
+                        dark: {
+                            bg: '#09090b',      /* Zinc 950 */
+                            card: '#18181b',    /* Zinc 900 */
+                            highlight: '#27272a', /* Zinc 800 */
+                            hover: '#3f3f46',      /* Zinc 700 */
+                            border: '#27272a',
+                            text: '#e4e4e7',      /* Zinc 200 */
+                            subtext: '#a1a1aa'    /* Zinc 400 */
+                        },
+                        // Light Mode Palette (Paper/Clean)
+                        light: {
+                            bg: '#ffffff',
+                            card: '#f4f4f5',      /* Zinc 100 */
+                            highlight: '#e4e4e7', /* Zinc 200 */
+                            hover: '#d4d4d8',      /* Zinc 300 */
+                            border: '#e4e4e7',
+                            text: '#18181b',      /* Zinc 900 */
+                            subtext: '#71717a'    /* Zinc 500 */
+                        },
+                        accent: {
+                            DEFAULT: '#e4e4e7',
+                            recording: '#ef4444',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        @keyframes wave {
+            0%, 100% { height: 30%; }
+            50% { height: 100%; }
+        }
+        .animate-wave { animation: wave 1.2s infinite ease-in-out; }
+        
+        @keyframes pulse-ring {
+            0% { transform: scale(0.8); opacity: 0.5; }
+            100% { transform: scale(2); opacity: 0; }
+        }
+        .recording-ring::before {
+            content: '';
+            position: absolute;
+            left: 0; top: 0; right: 0; bottom: 0;
+            border-radius: 50%;
+            border: 1px solid #ef4444;
+            opacity: 0.5;
+            animation: pulse-ring 2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+        }
+
+        /* 自定义范围滑块样式 */
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 12px;
+            width: 12px;
+            border-radius: 50%;
+            background: #e4e4e7; /* Zinc 200 */
+            margin-top: -4px;
+            cursor: pointer;
+            border: 2px solid #18181b;
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            cursor: pointer;
+            background: #27272a;
+            border-radius: 0px;
+        }
+        
+        /* Custom Select Styles */
+        select {
+            appearance: none;
+            background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23888%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E");
+            background-repeat: no-repeat;
+            background-position: right 0.7rem top 50%;
+            background-size: 0.65rem auto;
+        }
+
+        textarea::-webkit-scrollbar {
+            width: 8px;
+        }
+        textarea::-webkit-scrollbar-thumb {
+            background: rgba(113, 113, 122, 0.35);
+            border-radius: 999px;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 text-slate-800 h-screen w-screen overflow-hidden flex flex-col select-none" x-data="app()" @keydown.window="handleKeydown($event)">
+
+    <!-- Desktop Title Bar -->
+    <div class="h-10 flex-shrink-0 flex items-center justify-between px-5 border-b select-none z-50 transition-colors duration-300"
+         :class="theme === 'dark' ? 'bg-dark-card border-white/5 text-gray-400' : 'bg-white border-gray-200 text-gray-500'"
+         style="-webkit-app-region: drag">
+        <div class="flex gap-2 items-center w-20">
+            <div class="w-3 h-3 rounded-full bg-[#ff5f57] border border-[#e0443e]/20 shadow-sm cursor-pointer hover:bg-[#ff5f57]/80"></div>
+            <div class="w-3 h-3 rounded-full bg-[#febc2e] border border-[#d89e24]/20 shadow-sm cursor-pointer hover:bg-[#febc2e]/80"></div>
+            <div class="w-3 h-3 rounded-full bg-[#28c840] border border-[#1aab29]/20 shadow-sm cursor-pointer hover:bg-[#28c840]/80"></div>
+        </div>
+        <div class="text-xs font-semibold opacity-70 tracking-widest uppercase font-mono">EchoFlow</div>
+        <div class="w-24 flex justify-end gap-4 text-xs opacity-60 items-center" style="-webkit-app-region: no-drag">
+             <button @click="toggleTheme()" class="hover:text-brand-500 cursor-pointer transition-colors focus:outline-none">
+                <i :class="theme === 'dark' ? 'fa-sun' : 'fa-moon'" class="fa-solid"></i>
+             </button>
+             <button @click="openSettings()" class="hover:text-brand-500 cursor-pointer transition-colors focus:outline-none">
+                <i class="fa-solid fa-gear"></i>
+             </button>
+             <i class="fa-regular fa-bell hover:text-brand-500 cursor-pointer transition-colors"></i>
+        </div>
+    </div>
+
+    <!-- Main App Content Wrapper -->
+    <div class="flex-1 flex overflow-hidden relative w-full">
+
+    <!-- Secondary Sidebar: 文件列表 -->
+    <div x-show="showSidebar && mode !== 'settings'" 
+         class="w-64 border-r flex flex-col flex-shrink-0 z-20 transition-all duration-300"
+         :class="{
+            'w-0 opacity-0 overflow-hidden': !showSidebar || mode === 'settings',
+            'bg-dark-bg border-gray-800/50': theme === 'dark',
+            'bg-gray-50 border-gray-200': theme !== 'dark'
+         }">
+        <div class="h-14 border-b flex items-center justify-between px-4 flex-shrink-0 transition-colors duration-300"
+             :class="theme === 'dark' ? 'border-gray-800/50' : 'border-gray-200'">
+            <h2 class="font-bold text-xs tracking-wider" :class="theme === 'dark' ? 'text-gray-400' : 'text-slate-500'">资料库</h2>
+            <button @click="simulateUpload()" class="w-6 h-6 rounded flex items-center justify-center transition-colors"
+                    :class="theme === 'dark' ? 'hover:bg-white/10 text-gray-500 hover:text-gray-300' : 'hover:bg-slate-200 text-slate-400'">
+                <i class="fa-solid fa-plus text-xs"></i>
+            </button>
+        </div>
+        <div class="flex-1 overflow-y-auto no-scrollbar p-2 space-y-1">
+            <template x-for="file in files" :key="file.id">
+                <div @click="openPlayer(file.title)" 
+                     class="p-3 rounded-lg border cursor-pointer transition-all group relative"
+                     :class="currentTitle === file.title ? 
+                        (theme === 'dark' ? 'bg-white/5 border-brand-500/30 shadow-sm' : 'bg-white border-brand-300 shadow-sm') : 
+                        (theme === 'dark' ? 'border-transparent hover:bg-white/5' : 'hover:bg-white hover:shadow-sm border-transparent')">
+                    <h3 class="text-xs font-bold leading-snug mb-1" 
+                        :class="currentTitle === file.title ? (theme === 'dark' ? 'text-brand-400' : 'text-brand-700') : (theme === 'dark' ? 'text-gray-300' : 'text-slate-700')" 
+                        x-text="file.title"></h3>
+                    <div class="flex justify-between text-[10px]"
+                         :class="theme === 'dark' ? 'text-gray-500' : 'text-slate-400'">
+                        <span x-text="file.date"></span>
+                        <span x-text="file.duration"></span>
+                    </div>
+                </div>
+            </template>
+        </div>
+    </div>
+
+    <!-- Toggle Sidebar Button (Absolute) -->
+    <div x-show="!showSidebar && mode !== 'settings'" @click="showSidebar = true" class="absolute left-4 top-4 z-20 p-2 text-slate-500 hover:text-slate-300 cursor-pointer transition-colors mix-blend-difference">
+        <i class="fa-solid fa-bars"></i>
+    </div>
+
+    <!-- Main Content -->
+    <main class="flex-1 flex overflow-hidden relative transition-colors duration-300"
+          :class="theme === 'dark' ? 'bg-dark-bg' : 'bg-white'">
+        
+        <!-- PLAYER STUDIO: 支持动态主题切换 -->
+        <div x-show="mode !== 'settings'" class="flex-1 flex flex-col h-full w-full relative transition-colors duration-500"
+             :class="theme === 'dark' ? 'bg-dark-bg text-dark-text' : 'bg-light-bg text-light-text'">
+            
+            <!-- Player Header -->
+            <header class="h-16 flex items-center justify-between px-8 flex-shrink-0 z-10">
+                <div class="flex items-center gap-4 ml-8"> 
+                    <button @click="showSidebar = !showSidebar" 
+                            class="w-8 h-8 rounded-full flex items-center justify-center transition-colors"
+                            :class="theme === 'dark' ? 'bg-dark-card hover:bg-dark-hover text-white' : 'bg-light-card hover:bg-light-hover text-black'">
+                        <i :class="showSidebar ? 'fa-solid fa-outdent' : 'fa-solid fa-indent'" class="text-sm"></i>
+                    </button>
+                    <h2 class="font-semibold text-lg tracking-tight" 
+                        :class="theme === 'dark' ? 'text-white' : 'text-black'"
+                        x-text="currentTitle"></h2>
+                </div>
+            </header>
+
+            <!-- 界面 A: 精听模式 (Listening Mode) -->
+            <div x-show="mode === 'listening'" class="flex-1 flex flex-col items-center overflow-hidden animate-fade-in pt-4 pb-10 px-8">
+                
+                <!-- 1. 播放器卡片 (Player Card) -->
+                <div class="w-full max-w-3xl rounded-2xl p-6 border shadow-2xl flex flex-col gap-6 flex-shrink-0 z-10 transition-colors duration-300"
+                     :class="theme === 'dark' ? 'bg-dark-card border-dark-border' : 'bg-light-card border-light-border'">
+                    <div class="flex justify-between items-center">
+                        <h3 class="text-sm font-bold uppercase tracking-wide"
+                            :class="theme === 'dark' ? 'text-brand-400' : 'text-black'">Intensive Listening</h3>
+                        <button class="transition-colors"
+                                :class="theme === 'dark' ? 'text-gray-500 hover:text-white' : 'text-gray-400 hover:text-black'">
+                            <i class="fa-solid fa-ellipsis"></i>
+                        </button>
+                    </div>
+
+                    <!-- 波形与进度 -->
+                    <div class="flex flex-col gap-2">
+                        <div class="h-16 flex items-center gap-[2px] overflow-hidden relative mask-image-fade-sides">
+                            <template x-for="i in 120">
+                                <div class="w-1 rounded-full transition-all duration-150"
+                                     :class="i < 45 ? (theme === 'dark' ? 'bg-brand-500' : 'bg-black') : (theme === 'dark' ? 'bg-gray-700' : 'bg-gray-300')"
+                                     :style="`height: ${Math.random() * 80 + 20}%`">
+                                </div>
+                            </template>
+                            <!-- 进度滑块模拟 -->
+                            <div class="absolute left-[37%] top-0 bottom-0 w-0.5 flex flex-col items-center justify-center"
+                                 :class="theme === 'dark' ? 'bg-white' : 'bg-black'">
+                                <div class="w-3 h-3 rounded-full border-2 shadow-lg"
+                                     :class="theme === 'dark' ? 'bg-brand-500 border-white' : 'bg-black border-white'"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 控制栏 -->
+                    <div class="grid grid-cols-3 items-center">
+                        <div class="justify-self-start">
+                            <button class="text-sm transition-colors"
+                                    :class="theme === 'dark' ? 'text-gray-500 hover:text-white' : 'text-gray-400 hover:text-black'">
+                                <i class="fa-solid fa-rotate-left mr-1"></i> 5s
+                            </button>
+                        </div>
+                        
+                        <div class="flex items-center gap-6 justify-self-center">
+                            <button @click="prevSentence()" class="text-lg transition-colors"
+                                    :class="theme === 'dark' ? 'text-gray-400 hover:text-white' : 'text-gray-400 hover:text-black'">
+                                <i class="fa-solid fa-backward-step"></i>
+                            </button>
+                            <button @click="togglePlay()" 
+                                    class="w-12 h-12 rounded-full flex items-center justify-center shadow-lg hover:scale-105 transition-all"
+                                    :class="theme === 'dark' ? 'bg-brand-500 hover:bg-brand-400 text-white shadow-brand-500/20' : 'bg-black hover:bg-gray-800 text-white shadow-black/20'">
+                                <i :class="isPlaying ? 'fa-pause' : 'fa-play'" class="fa-solid text-lg"></i>
+                            </button>
+                            <button @click="nextSentence()" class="text-lg transition-colors"
+                                    :class="theme === 'dark' ? 'text-gray-400 hover:text-white' : 'text-gray-400 hover:text-black'">
+                                <i class="fa-solid fa-forward-step"></i>
+                            </button>
+                            <button @click="toggleLoop()" class="text-lg transition-colors relative"
+                                    :class="isLooping ? 'text-brand-500' : (theme === 'dark' ? 'text-gray-400 hover:text-white' : 'text-gray-400 hover:text-black')"
+                                    title="Repeat Current">
+                                <i class="fa-solid fa-repeat"></i>
+                                <div x-show="isLooping" class="absolute -bottom-2 left-1/2 transform -translate-x-1/2 w-1 h-1 rounded-full bg-brand-500"></div>
+                            </button>
+                        </div>
+
+                        <div class="flex items-center gap-4 text-xs font-mono text-gray-500 justify-self-end">
+                            <!-- Volume Control -->
+                            <div class="flex items-center gap-2 group mr-2">
+                                <button @click="toggleMute()" class="w-5 focus:outline-none text-right" title="Mute/Unmute">
+                                    <i class="fa-solid transition-colors text-sm" 
+                                       :class="[
+                                           volume == 0 ? 'fa-volume-xmark' : (volume < 50 ? 'fa-volume-low' : 'fa-volume-high'),
+                                           theme === 'dark' ? 'text-gray-400 group-hover:text-white' : 'text-gray-400 group-hover:text-black'
+                                       ]"></i>
+                                </button>
+                                <input type="range" min="0" max="100" x-model="volume" class="w-16 cursor-pointer">
+                            </div>
+
+                            <span>00:36 / 01:30</span>
+                            <span class="cursor-pointer transition-colors"
+                                  :class="theme === 'dark' ? 'text-gray-400 hover:text-white' : 'text-gray-400 hover:text-black'">1x</span>
+                        </div>
+                    </div>
+
+                </div>
+
+                <!-- 分割线与工具栏 -->
+                <div class="w-full max-w-3xl flex items-center justify-between py-2 gap-2">
+                    <div class="flex items-center gap-2">
+                        <button @click="isTranscriptEditing ? cancelSubtitleEdits() : enterSubtitleEditMode()" class="transition-colors text-[11px] font-bold border px-2.5 py-1 rounded-md flex items-center gap-1.5"
+                                :class="isTranscriptEditing ? (theme === 'dark' ? 'bg-white text-black border-white' : 'bg-black text-white border-black') : (theme === 'dark' ? 'text-gray-300 border-gray-700 hover:border-gray-500 hover:text-white' : 'text-slate-600 border-gray-300 hover:border-gray-400 hover:text-black')">
+                            <i class="fa-solid" :class="isTranscriptEditing ? 'fa-xmark' : 'fa-pen-to-square'"></i>
+                            <span x-text="isTranscriptEditing ? '退出编辑' : '编辑字幕'"></span>
+                        </button>
+                    </div>
+
+                    <div class="flex items-center gap-2">
+                        <button x-show="isTranscriptEditing" @click="saveSubtitleEdits()" class="transition-colors text-[11px] font-bold border px-2.5 py-1 rounded-md flex items-center gap-1.5"
+                                :class="hasUnsavedSubtitleChanges ? (theme === 'dark' ? 'bg-white text-black border-white' : 'bg-black text-white border-black') : (theme === 'dark' ? 'text-gray-600 border-gray-800 cursor-not-allowed' : 'text-gray-300 border-gray-200 cursor-not-allowed')"
+                                :disabled="!hasUnsavedSubtitleChanges">
+                            <i class="fa-solid fa-check"></i>
+                            保存
+                        </button>
+                        <button x-show="isTranscriptEditing" @click="cancelSubtitleEdits()" class="transition-colors text-[11px] font-bold border px-2.5 py-1 rounded-md"
+                                :class="theme === 'dark' ? 'text-gray-400 border-gray-700 hover:border-gray-500 hover:text-white' : 'text-slate-500 border-gray-300 hover:border-gray-400 hover:text-black'">
+                            取消
+                        </button>
+
+                        <button @click="showEn = !showEn" class="transition-colors text-[11px] font-bold border px-2 py-1 rounded-md" title="Toggle English"
+                            :class="showEn ? (theme === 'dark' ? 'bg-white text-black border-white' : 'bg-black text-white border-black') : (theme === 'dark' ? 'text-gray-500 border-gray-700 hover:border-gray-500' : 'text-gray-400 border-gray-300 hover:border-gray-400')">
+                            EN
+                        </button>
+                        <button @click="showZh = !showZh" class="transition-colors text-[11px] font-bold border px-2 py-1 rounded-md" title="Toggle Chinese"
+                            :class="showZh ? (theme === 'dark' ? 'bg-white text-black border-white' : 'bg-black text-white border-black') : (theme === 'dark' ? 'text-gray-500 border-gray-700 hover:border-gray-500' : 'text-gray-400 border-gray-300 hover:border-gray-400')">
+                            中
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 2. 字幕列表 (Subtitle List) -->
+                <div class="flex-1 w-full max-w-3xl overflow-y-auto no-scrollbar relative mask-image-gradient-y" id="subtitle-container">
+                    <div class="space-y-1.5 pb-20"> <!-- Padding bottom for scrolling space -->
+                        <template x-for="(item, index) in getListeningSentences()" :key="item.id">
+                            <div @click="handleSentenceCardClick(index)" 
+                                 :id="'sentence-' + index"
+                                 class="px-3 py-2.5 rounded-lg transition-all duration-300 border border-transparent group"
+                                 :class="getSentenceCardClass(index)">
+
+                                <div x-show="isTranscriptEditing && editingIndex === index" class="flex items-start justify-between gap-2 mb-2">
+                                    <div class="flex items-center gap-1.5 pt-0.5 flex-shrink-0">
+                                        <span class="text-[10px] font-bold uppercase tracking-[0.16em]"
+                                              :class="theme === 'dark' ? 'text-zinc-500' : 'text-slate-400'"
+                                              x-text="String(index + 1).padStart(2, '0')"></span>
+                                        <span x-show="getSentenceBadge(item)"
+                                              class="px-1.5 py-0.5 rounded-full border text-[9px] font-bold tracking-[0.14em]"
+                                              :class="getSentenceBadgeClass(item)"
+                                              x-text="getSentenceBadge(item)"></span>
+                                    </div>
+                                    <div class="flex items-center gap-1 flex-wrap justify-end">
+                                        <button @click.stop="startEditingSentence(index)" class="w-7 h-7 rounded-md border text-[11px] transition-colors"
+                                                :class="theme === 'dark' ? 'border-zinc-700 text-zinc-400 hover:text-white hover:border-zinc-500' : 'border-gray-300 text-slate-500 hover:text-black hover:border-gray-400'"
+                                                title="编辑">
+                                            <i class="fa-solid fa-pen"></i>
+                                        </button>
+                                        <button @click.stop="splitSentence(index)" class="px-2 h-7 rounded-md border text-[10px] font-bold transition-colors"
+                                                :class="editingIndex !== index ? (theme === 'dark' ? 'border-zinc-800 text-zinc-700 cursor-not-allowed' : 'border-gray-200 text-gray-300 cursor-not-allowed') : (theme === 'dark' ? 'border-zinc-700 text-zinc-300 hover:border-zinc-500 hover:text-white' : 'border-gray-300 text-slate-600 hover:border-gray-400 hover:text-black')"
+                                                :disabled="editingIndex !== index"
+                                                title="拆句">
+                                            拆
+                                        </button>
+                                        <button @click.stop="mergeWithPrev(index)" class="px-2 h-7 rounded-md border text-[10px] font-bold transition-colors"
+                                                :class="index === 0 ? (theme === 'dark' ? 'border-zinc-800 text-zinc-700 cursor-not-allowed' : 'border-gray-200 text-gray-300 cursor-not-allowed') : (theme === 'dark' ? 'border-zinc-700 text-zinc-300 hover:border-zinc-500 hover:text-white' : 'border-gray-300 text-slate-600 hover:border-gray-400 hover:text-black')"
+                                                :disabled="index === 0"
+                                                title="与上一句合并">
+                                            前并
+                                        </button>
+                                        <button @click.stop="mergeWithNext(index)" class="px-2 h-7 rounded-md border text-[10px] font-bold transition-colors"
+                                                :class="index === getListeningSentences().length - 1 ? (theme === 'dark' ? 'border-zinc-800 text-zinc-700 cursor-not-allowed' : 'border-gray-200 text-gray-300 cursor-not-allowed') : (theme === 'dark' ? 'border-zinc-700 text-zinc-300 hover:border-zinc-500 hover:text-white' : 'border-gray-300 text-slate-600 hover:border-gray-400 hover:text-black')"
+                                                :disabled="index === getListeningSentences().length - 1"
+                                                title="与下一句合并">
+                                            后并
+                                        </button>
+                                        <button @click.stop="removeSentence(index)" class="w-7 h-7 rounded-md border text-[11px] transition-colors"
+                                                :class="getListeningSentences().length === 1 ? (theme === 'dark' ? 'border-zinc-800 text-zinc-700 cursor-not-allowed' : 'border-gray-200 text-gray-300 cursor-not-allowed') : (theme === 'dark' ? 'border-red-900/60 text-red-400 hover:border-red-500 hover:text-red-300' : 'border-red-200 text-red-500 hover:border-red-400 hover:text-red-600')"
+                                                :disabled="getListeningSentences().length === 1"
+                                                title="删除">
+                                            <i class="fa-solid fa-trash"></i>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <template x-if="!(isTranscriptEditing && editingIndex === index)">
+                                    <div class="flex items-start gap-2.5">
+                                        <div class="flex items-center gap-1.5 pt-0.5 flex-shrink-0">
+                                            <span class="text-[10px] font-bold uppercase tracking-[0.16em]"
+                                                  :class="theme === 'dark' ? 'text-zinc-500' : 'text-slate-400'"
+                                                  x-text="String(index + 1).padStart(2, '0')"></span>
+                                            <span x-show="getSentenceBadge(item)"
+                                                  class="px-1.5 py-0.5 rounded-full border text-[9px] font-bold tracking-[0.14em]"
+                                                  :class="getSentenceBadgeClass(item)"
+                                                  x-text="getSentenceBadge(item)"></span>
+                                        </div>
+                                        <p class="text-base font-medium leading-6 transition-all duration-300 flex-1"
+                                           :class="[
+                                                index === currentIndex ? (theme === 'dark' ? 'text-brand-100' : 'text-black') : (theme === 'dark' ? 'text-gray-300' : 'text-gray-600'),
+                                                showEn ? '' : 'blur-md opacity-50 select-none'
+                                           ]"
+                                           x-text="item.en"></p>
+                                    </div>
+                                </template>
+
+                                <template x-if="isTranscriptEditing && editingIndex === index">
+                                    <div class="space-y-1.5">
+                                        <div class="flex items-start">
+                                            <textarea
+                                                :id="'sentence-editor-' + item.id"
+                                                rows="2"
+                                                class="w-full text-base leading-6 rounded-xl border px-3 py-2 outline-none resize-none transition-colors"
+                                                :class="theme === 'dark' ? 'bg-zinc-950 border-zinc-700 text-white focus:border-zinc-500' : 'bg-white border-gray-300 text-black focus:border-gray-500'"
+                                                :value="item.en"
+                                                @click.stop
+                                                @input="updateSentenceDraft(index, $event.target.value)"
+                                                @keydown.enter.exact.prevent="splitSentence(index)"
+                                                @keydown.meta.enter.prevent="finishEditingSentence()"
+                                                @keydown.ctrl.enter.prevent="finishEditingSentence()"
+                                                @keydown.escape.prevent="finishEditingSentence()"
+                                            ></textarea>
+                                        </div>
+                                        <div class="text-[10px] tracking-[0.12em] uppercase"
+                                             :class="theme === 'dark' ? 'text-zinc-500' : 'text-slate-400'">
+                                            回车按光标断句，Cmd/Ctrl + Enter 完成当前行
+                                        </div>
+                                    </div>
+                                </template>
+
+                                <div x-show="item.issues && item.issues.length" class="mt-2 flex flex-wrap gap-1.5">
+                                    <template x-for="issue in item.issues" :key="issue">
+                                        <span class="text-[10px] px-2 py-0.5 rounded-full border"
+                                              :class="theme === 'dark' ? 'border-amber-900/60 text-amber-300 bg-amber-950/30' : 'border-amber-200 text-amber-700 bg-amber-50'"
+                                              x-text="issue"></span>
+                                    </template>
+                                </div>
+
+                                <div class="overflow-hidden transition-all duration-300"
+                                     :class="showZh ? 'max-h-20 mt-2 opacity-100' : 'max-h-0 opacity-0'">
+                                    <p class="text-xs leading-5" 
+                                       :class="theme === 'dark' ? 'text-gray-500' : 'text-gray-400'"
+                                       x-text="item.zh || '待补充中文翻译'"></p>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+
+                <!-- 3. 底部行动按钮 (Bottom CTA) -->
+                <div class="w-full max-w-3xl mt-4 flex-shrink-0 z-20">
+                    <button @click="switchMode('shadowing')" 
+                            class="w-full font-medium py-4 rounded border border-transparent transition-all hover:translate-y-[-1px] flex items-center justify-center gap-2 group tracking-wide"
+                            :class="theme === 'dark' ? 'bg-zinc-100 hover:bg-white text-black' : 'bg-black hover:bg-gray-800 text-white'">
+                        Start Speaking Practice 
+                        <i class="fa-solid fa-microphone transition-colors" :class="theme === 'dark' ? 'group-hover:text-red-500' : 'group-hover:text-red-400'"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- 界面 B: 跟读模式 (Shadowing Mode) -->
+            <div x-show="mode === 'shadowing'" class="flex-1 flex flex-row overflow-hidden"
+                 :class="theme === 'dark' ? 'bg-dark-bg' : 'bg-light-bg'">
+                
+                <!-- 左侧：跟读工作区 (Main Work Area) -->
+                <div class="flex-1 flex flex-col p-6 gap-6 animate-fade-in overflow-y-auto">
+                    <!-- 顶部提示 -->
+                    <div class="flex justify-between items-end px-2">
+                        <div>
+                            <button @click="switchMode('listening')" class="text-sm mb-2 flex items-center gap-1 transition-colors"
+                                    :class="theme === 'dark' ? 'text-gray-500 hover:text-white' : 'text-gray-400 hover:text-black'">
+                                <i class="fa-solid fa-arrow-left"></i> Back to Listening
+                            </button>
+                            <h3 class="text-lg font-bold" :class="theme === 'dark' ? 'text-white' : 'text-black'">Shadowing Challenge</h3>
+                        </div>
+                    </div>
+
+                    <!-- 卡片容器 -->
+                    <div class="flex-1 rounded-2xl border shadow-sm flex flex-col overflow-hidden transition-colors"
+                         :class="theme === 'dark' ? 'bg-dark-card border-dark-border' : 'bg-light-card border-light-border'">
+                        <!-- 文本参考区域 -->
+                        <div class="p-8 border-b z-10 transition-colors flex items-center justify-between gap-4"
+                             :class="theme === 'dark' ? 'border-dark-border bg-dark-card' : 'border-light-border bg-light-card'">
+                            
+                            <button @click="prevSentence()" class="p-2 rounded-full transition-colors flex-shrink-0"
+                                    :class="theme === 'dark' ? 'hover:bg-white/10 text-gray-500 hover:text-white' : 'hover:bg-black/5 text-gray-400 hover:text-black'"
+                                    :disabled="currentIndex === 0"
+                                    :style="currentIndex === 0 ? 'opacity: 0.3; cursor: not-allowed;' : ''">
+                                <i class="fa-solid fa-chevron-left text-lg"></i>
+                            </button>
+
+                            <div class="text-center flex-1">
+                                <p class="text-2xl font-medium" 
+                                   :class="theme === 'dark' ? 'text-white' : 'text-black'"
+                                   x-text="sentences[currentIndex].en"></p>
+                                <p class="mt-4" 
+                                   :class="theme === 'dark' ? 'text-gray-500' : 'text-gray-400'"
+                                   x-text="sentences[currentIndex].zh"></p>
+                            </div>
+
+                            <button @click="nextSentence()" class="p-2 rounded-full transition-colors flex-shrink-0"
+                                    :class="theme === 'dark' ? 'hover:bg-white/10 text-gray-500 hover:text-white' : 'hover:bg-black/5 text-gray-400 hover:text-black'"
+                                    :disabled="currentIndex === sentences.length - 1"
+                                    :style="currentIndex === sentences.length - 1 ? 'opacity: 0.3; cursor: not-allowed;' : ''">
+                                <i class="fa-solid fa-chevron-right text-lg"></i>
+                            </button>
+                        </div>
+
+                        <!-- 核心波形对比区域 -->
+                        <div class="flex-1 flex flex-col relative">
+                            <!-- 原音轨道 -->
+                            <div class="flex-1 relative border-b flex flex-col justify-center group transition-colors"
+                                 :class="theme === 'dark' ? 'bg-dark-bg/50 border-dark-border' : 'bg-white border-light-border'">
+                                <div class="absolute top-4 left-4 z-10 flex items-center gap-2">
+                                    <span class="px-2 py-1 rounded text-[10px] font-bold uppercase transition-colors"
+                                          :class="theme === 'dark' ? 'bg-brand-900/50 text-brand-400 border border-brand-900' : 'bg-gray-100 text-gray-500 border border-gray-200'">Original</span>
+                                </div>
+
+                                <!-- Volume Control (Absolute Top Right) -->
+                                <div class="absolute top-4 right-4 z-10 flex items-center gap-2 group">
+                                     <button @click="toggleMute()" class="w-5 focus:outline-none text-right" title="Mute/Unmute">
+                                        <i class="fa-solid transition-colors text-sm" 
+                                           :class="[
+                                               volume == 0 ? 'fa-volume-xmark' : (volume < 50 ? 'fa-volume-low' : 'fa-volume-high'),
+                                               theme === 'dark' ? 'text-gray-500 group-hover:text-white' : 'text-gray-400 group-hover:text-black'
+                                           ]"></i>
+                                    </button>
+                                    <input type="range" min="0" max="100" x-model="volume" class="w-20 cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                                </div>
+                                
+                                <div class="w-full px-10 h-24 flex items-center justify-center gap-1">
+                                    <template x-for="i in 100">
+                                        <div class="w-1.5 rounded-full transition-all"
+                                             :class="(isPlaying ? 'animate-wave ' : '') + (theme === 'dark' ? 'bg-brand-500/40' : 'bg-black/20')"
+                                             :style="`height: ${Math.random() * 60 + 20}%`"></div>
+                                    </template>
+                                </div>
+                            </div>
+
+                            <!-- 录音轨道 -->
+                            <div class="flex-1 relative flex flex-col justify-center group border-t transition-colors"
+                                 :class="theme === 'dark' ? 'bg-zinc-900/50 border-zinc-800' : 'bg-gray-50 border-gray-200'">
+                                <div class="absolute top-4 left-4 z-10 flex items-center gap-2">
+                                    <span class="px-2 py-1 rounded text-[10px] font-bold uppercase tracking-widest transition-colors"
+                                          :class="theme === 'dark' ? 'bg-zinc-800 text-zinc-400 border border-zinc-700' : 'bg-white text-gray-500 border border-gray-200'">You</span>
+                                </div>
+                                
+                                <!-- 操作按钮 -->
+                                <div class="absolute top-4 right-4 z-10 flex items-center gap-2" x-show="userAudioUrl && !isRecording" x-transition>
+                                    <button @click="playComparison()" class="px-3 py-1.5 text-xs font-medium rounded border transition-colors flex items-center gap-2 group" 
+                                            :class="theme === 'dark' ? 'bg-zinc-200 hover:bg-white text-black border-zinc-200' : 'bg-black hover:bg-gray-800 text-white border-black'"
+                                            title="快捷键: C">
+                                        <i class="fa-solid fa-code-compare"></i> Contrast
+                                    </button>
+                                </div>
+
+                                <div class="w-full px-10 h-24 flex items-center justify-center gap-1">
+                                    <template x-if="isRecording">
+                                         <template x-for="i in 100">
+                                            <div class="w-1 bg-red-500 rounded-full animate-wave"
+                                                 :style="`height: ${Math.random() * 80 + 10}%; animation-delay: ${i * 0.05}s`"></div>
+                                         </template>
+                                    </template>
+                                    <template x-if="!isRecording">
+                                         <div class="text-sm font-light tracking-wide"
+                                              :class="theme === 'dark' ? 'text-zinc-600' : 'text-gray-400'">Tap microphone to record</div>
+                                    </template>
+                                </div>
+                            </div>
+
+                            <!-- 录音控制 FAB -->
+                            <div class="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 z-20 flex items-center justify-center group">
+                                <button @click="toggleRecording()" 
+                                        class="w-20 h-20 rounded-full flex items-center justify-center text-2xl transition-all relative border z-10"
+                                        :class="(isRecording ? 'recording-ring ' : '') + (theme === 'dark' ? (isRecording ? 'bg-black text-red-500 border-zinc-700' : 'bg-black text-zinc-400 hover:text-white border-zinc-700 hover:border-zinc-500') : (isRecording ? 'bg-white text-red-500 border-gray-200' : 'bg-white text-gray-400 hover:text-black border-gray-200 hover:border-gray-400 shadow-lg'))">
+                                    <i :class="isRecording ? 'fa-solid fa-stop' : 'fa-solid fa-microphone'"></i>
+                                </button>
+                                <div class="absolute top-full mt-4 px-3 py-1.5 rounded text-xs border opacity-0 group-hover:opacity-100 transition-all duration-300 transform group-hover:translate-y-0 translate-y-[-4px] pointer-events-none whitespace-nowrap z-20"
+                                     :class="theme === 'dark' ? 'bg-zinc-900 text-zinc-500 border-zinc-800' : 'bg-white text-gray-500 border-gray-200 shadow-sm'">
+                                    Shortcut <kbd class="font-sans font-bold px-1.5 py-0.5 rounded ml-1 border"
+                                                  :class="theme === 'dark' ? 'bg-zinc-800 text-zinc-300 border-zinc-700' : 'bg-gray-100 text-gray-600 border-gray-200'">R</kbd>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 右侧：进度列表 (Sidebar List) -->
+                <div class="w-80 border-l flex flex-col z-10 transition-colors"
+                     :class="theme === 'dark' ? 'bg-dark-card border-dark-border' : 'bg-light-card border-light-border'">
+                    <div class="h-14 border-b flex items-center justify-between px-4 flex-shrink-0 transition-colors"
+                         :class="theme === 'dark' ? 'border-dark-border' : 'border-light-border'">
+                        <h3 class="text-xs font-bold uppercase tracking-wide"
+                            :class="theme === 'dark' ? 'text-brand-400' : 'text-black'">Script Flow</h3>
+                        <span class="text-xs font-mono" 
+                              :class="theme === 'dark' ? 'text-brand-400' : 'text-black'"
+                              x-text="`${currentIndex + 1}/${sentences.length}`"></span>
+                    </div>
+                    <div class="flex-1 overflow-y-auto no-scrollbar p-2 space-y-1">
+                        <template x-for="(item, index) in sentences" :key="index">
+                            <div @click="jumpTo(index)" 
+                                 :id="'shadow-item-' + index"
+                                 class="p-3 rounded-lg border cursor-pointer transition-all group flex gap-3 items-start"
+                                 :class="index === currentIndex ? (theme === 'dark' ? 'bg-brand-900/20 border-brand-500/30' : 'bg-gray-200 border-transparent') : (theme === 'dark' ? 'border-transparent hover:bg-dark-highlight opacity-50 hover:opacity-100' : 'border-transparent hover:bg-gray-200 opacity-50 hover:opacity-100')">
+                                
+                                <!-- Status Icon -->
+                                <div class="mt-0.5">
+                                    <template x-if="index < currentIndex">
+                                        <i class="fa-solid fa-circle-check text-green-500 text-xs"></i>
+                                    </template>
+                                    <template x-if="index === currentIndex">
+                                        <div class="w-2 h-2 rounded-full mt-1.5 animate-pulse"
+                                             :class="theme === 'dark' ? 'bg-brand-500' : 'bg-black'"></div>
+                                    </template>
+                                    <template x-if="index > currentIndex">
+                                        <div class="w-2 h-2 rounded-full mt-1.5"
+                                             :class="theme === 'dark' ? 'bg-gray-700' : 'bg-gray-300'"></div>
+                                    </template>
+                                </div>
+
+                                <div>
+                                    <p class="text-sm leading-snug transition-colors" 
+                                       :class="index === currentIndex ? (theme === 'dark' ? 'text-white font-medium' : 'text-black font-medium') : (theme === 'dark' ? 'text-gray-400' : 'text-gray-500')"
+                                       x-text="item.en"></p>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div x-show="subtitleToast"
+             x-transition.opacity.duration.200ms
+             class="absolute bottom-6 right-6 px-4 py-3 rounded-2xl border shadow-xl text-sm z-40"
+             :class="theme === 'dark' ? 'bg-zinc-900 border-zinc-700 text-zinc-100' : 'bg-white border-gray-200 text-slate-700'">
+            <div class="flex items-center gap-3">
+                <i class="fa-solid fa-check text-emerald-500"></i>
+                <span x-text="subtitleToast"></span>
+            </div>
+        </div>
+
+        <!-- 界面 C: 设置页面 (Settings Page) -->
+        <div x-show="mode === 'settings'" 
+             class="flex-1 flex flex-col overflow-hidden items-center justify-center relative transition-colors duration-500" 
+             :class="theme === 'dark' ? 'bg-dark-bg text-dark-text' : 'bg-light-bg text-light-text'"
+             style="display: none;"> <!-- hidden by default for flicker free -->
+             
+             <div class="w-full max-w-lg p-8 rounded-2xl border shadow-2xl relative"
+                  :class="theme === 'dark' ? 'bg-dark-card border-dark-border' : 'bg-light-card border-light-border'">
+                  
+                  <!-- Close Button -->
+                  <button @click="closeSettings()" class="absolute top-4 right-4 text-gray-500 hover:text-gray-700 transition-colors focus:outline-none">
+                      <i class="fa-solid fa-xmark text-xl"></i>
+                  </button>
+
+                  <h2 class="text-2xl font-bold mb-6" :class="theme === 'dark' ? 'text-white' : 'text-black'">Settings</h2>
+                  
+                  <div class="space-y-6">
+                        <!-- Interface Language -->
+                        <div>
+                            <label class="block text-xs font-bold uppercase tracking-wider mb-2" 
+                                   :class="theme === 'dark' ? 'text-brand-400' : 'text-gray-500'">
+                                Interface Language
+                            </label>
+                            <div class="relative">
+                                <select x-model="selectedLanguage" 
+                                        class="w-full p-3 rounded-lg border appearance-none focus:ring-2 focus:ring-brand-500 focus:border-transparent outline-none transition-all"
+                                        :class="theme === 'dark' ? 'bg-dark-bg border-gray-700 text-white' : 'bg-white border-gray-300 text-black'">
+                                    <template x-for="lang in languages" :key="lang.code">
+                                        <option :value="lang.code" x-text="lang.label"></option>
+                                    </template>
+                                </select>
+                                <div class="absolute inset-y-0 right-0 flex items-center px-3 pointer-events-none text-gray-500">
+                                    <i class="fa-solid fa-globe text-xs"></i>
+                                </div>
+                            </div>
+                            <p class="mt-2 text-xs text-gray-500">Choose your preferred language for the application interface.</p>
+                        </div>
+
+                        <!-- Input Device -->
+                        <div>
+                            <label class="block text-xs font-bold uppercase tracking-wider mb-2" 
+                                   :class="theme === 'dark' ? 'text-brand-400' : 'text-gray-500'">
+                                Microphone (Input)
+                            </label>
+                            <div class="relative">
+                                <select x-model="selectedInputId" 
+                                        class="w-full p-3 rounded-lg border appearance-none focus:ring-2 focus:ring-brand-500 focus:border-transparent outline-none transition-all"
+                                        :class="theme === 'dark' ? 'bg-dark-bg border-gray-700 text-white' : 'bg-white border-gray-300 text-black'">
+                                    <template x-for="device in audioInputDevices" :key="device.deviceId">
+                                        <option :value="device.deviceId" x-text="device.label || `Microphone ${device.deviceId.slice(0,5)}...`"></option>
+                                    </template>
+                                    <option value="" x-show="audioInputDevices.length === 0">No microphones found</option>
+                                </select>
+                                <div class="absolute inset-y-0 right-0 flex items-center px-3 pointer-events-none text-gray-500">
+                                    <i class="fa-solid fa-microphone text-xs"></i>
+                                </div>
+                            </div>
+                            <p class="mt-2 text-xs text-gray-500">Select the device you want to use for recording your voice.</p>
+                        </div>
+
+                        <!-- Output Device -->
+                        <div x-show="audioOutputDevices.length > 0">
+                            <label class="block text-xs font-bold uppercase tracking-wider mb-2" 
+                                   :class="theme === 'dark' ? 'text-brand-400' : 'text-gray-500'">
+                                Speakers (Output)
+                            </label>
+                            <div class="relative">
+                                <select x-model="selectedOutputId" 
+                                        class="w-full p-3 rounded-lg border appearance-none focus:ring-2 focus:ring-brand-500 focus:border-transparent outline-none transition-all"
+                                        :class="theme === 'dark' ? 'bg-dark-bg border-gray-700 text-white' : 'bg-white border-gray-300 text-black'">
+                                    <template x-for="device in audioOutputDevices" :key="device.deviceId">
+                                        <option :value="device.deviceId" x-text="device.label || `Speaker ${device.deviceId.slice(0,5)}...`"></option>
+                                    </template>
+                                </select>
+                                <div class="absolute inset-y-0 right-0 flex items-center px-3 pointer-events-none text-gray-500">
+                                    <i class="fa-solid fa-volume-high text-xs"></i>
+                                </div>
+                            </div>
+                            <p class="mt-2 text-xs text-gray-500">Note: Output device selection depends on browser support.</p>
+                        </div>
+                  </div>
+
+                  <div class="mt-8 pt-6 border-t flex justify-end" :class="theme === 'dark' ? 'border-gray-800' : 'border-gray-200'">
+                      <button @click="closeSettings()" 
+                              class="px-6 py-2 rounded-lg font-medium transition-colors"
+                              :class="theme === 'dark' ? 'bg-white text-black hover:bg-gray-200' : 'bg-black text-white hover:bg-gray-800'">
+                          Done
+                      </button>
+                  </div>
+             </div>
+        </div>
+
+    </main>
+    </div>
+
+    <script>
+        function app() {
+            return {
+                // view: 'player', // View state removed as we are single-view now
+                mode: 'listening',
+                lastMode: 'listening', // Track previous mode for settings return
+                currentTitle: 'Lesson 1: Mastering Daily Greetings',
+                showSidebar: true,
+                isPlaying: false,
+                isLooping: false,
+                isRecording: false,
+                showEn: true,
+                showZh: false,
+                currentIndex: 0,
+                userAudioUrl: null,
+                volume: 80,
+                lastVolume: 80,
+                isTranscriptEditing: false,
+                editingIndex: null,
+                draftSentences: [],
+                hasUnsavedSubtitleChanges: false,
+                subtitleToast: '',
+                subtitleToastTimer: null,
+                sentenceIdCounter: 7,
+                
+                theme: 'dark', // 'dark' or 'light'
+
+                // Languages
+                languages: [
+                    { code: 'zh-CN', label: '简体中文 (Chinese)' },
+                    { code: 'en-US', label: 'English (US)' },
+                    { code: 'ja-JP', label: '日本語 (Japanese)' },
+                    { code: 'es-ES', label: 'Español (Spanish)' }
+                ],
+                selectedLanguage: 'zh-CN',
+
+                // Audio Devices
+                audioInputDevices: [],
+                audioOutputDevices: [],
+                selectedInputId: '',
+                selectedOutputId: '',
+                
+                toggleTheme() {
+                    this.theme = this.theme === 'dark' ? 'light' : 'dark';
+                },
+
+                toggleMute() {
+                    if (this.volume > 0) {
+                        this.lastVolume = this.volume;
+                        this.volume = 0;
+                    } else {
+                        this.volume = this.lastVolume || 80;
+                    }
+                },
+
+                files: [
+                    { id: 1, title: "Lesson 1: Mastering Daily Greetings", date: "2h ago", duration: "01:30" },
+                    { id: 2, title: "TED: The Power of Introverts", date: "Yesterday", duration: "12:45" },
+                    { id: 3, title: "Business Meeting 101", date: "3d ago", duration: "05:30" },
+                ],
+
+                sentences: [
+                    { id: 1, en: "Hey, how's it going?", zh: "嘿，最近怎么样？", status: 'saved', dirty: false, issues: [] },
+                    { id: 2, en: "Not bad, thanks for asking. How about you?", zh: "不错，谢谢关心。你呢？", status: 'saved', dirty: false, issues: [] },
+                    { id: 3, en: "I'm doing great! The weather is beautiful today, isn't it?", zh: "我很好！今天天气真好，不是吗？", status: 'saved', dirty: false, issues: [] },
+                    { id: 4, en: "It really is. Makes me want to go for a walk in the park.", zh: "确实是。让我想去公园散散步。", status: 'saved', dirty: false, issues: [] },
+                    { id: 5, en: "That sounds like a wonderful idea. Enjoy your day!", zh: "听起来是个好主意。祝你今天愉快！", status: 'saved', dirty: false, issues: [] },
+                    { id: 6, en: "You too, take care!", zh: "你也是，保重！", status: 'saved', dirty: false, issues: [] }
+                ],
+
+                simulateUpload() { },
+
+                init() {
+                    this.sentenceIdCounter = this.sentences.reduce((maxId, sentence) => Math.max(maxId, sentence.id), 0) + 1;
+                },
+
+                cloneSentence(sentence) {
+                    return {
+                        id: sentence.id,
+                        en: sentence.en,
+                        zh: sentence.zh,
+                        status: sentence.status || 'saved',
+                        dirty: Boolean(sentence.dirty),
+                        issues: Array.isArray(sentence.issues) ? [...sentence.issues] : [],
+                    };
+                },
+
+                getListeningSentences() {
+                    return this.isTranscriptEditing ? this.draftSentences : this.sentences;
+                },
+
+                handleSentenceCardClick(index) {
+                    if (this.isTranscriptEditing) {
+                        this.startEditingSentence(index);
+                        return;
+                    }
+                    this.jumpTo(index);
+                },
+
+                ensureTranscriptEditingResolved() {
+                    if (!this.isTranscriptEditing) return true;
+                    this.showSubtitleToast('请先保存或取消字幕编辑');
+                    return false;
+                },
+
+                getSentenceCardClass(index) {
+                    const isActive = index === this.currentIndex;
+                    const isEditing = this.isTranscriptEditing && this.editingIndex === index;
+
+                    if (isEditing) {
+                        return this.theme === 'dark'
+                            ? 'bg-zinc-900/90 border-zinc-500 shadow-2xl'
+                            : 'bg-white border-slate-400 shadow-xl';
+                    }
+
+                    if (isActive) {
+                        return this.theme === 'dark'
+                            ? 'bg-dark-highlight border-brand-500/30 shadow-lg transform scale-[1.02]'
+                            : 'bg-light-highlight border-gray-300 shadow-lg transform scale-[1.02]';
+                    }
+
+                    return this.theme === 'dark'
+                        ? 'cursor-pointer hover:bg-dark-card/50 opacity-70 hover:opacity-100'
+                        : 'cursor-pointer hover:bg-light-card/50 opacity-70 hover:opacity-100';
+                },
+
+                getSentenceBadge(sentence) {
+                    if (sentence.status === 'new') return 'new';
+                    if (sentence.status === 'changed') return 'changed';
+                    if (sentence.status === 'editing') return 'editing';
+                    return '';
+                },
+
+                getSentenceBadgeClass(sentence) {
+                    if (sentence.status === 'new') {
+                        return this.theme === 'dark'
+                            ? 'border-emerald-900/60 text-emerald-300 bg-emerald-950/30'
+                            : 'border-emerald-200 text-emerald-700 bg-emerald-50';
+                    }
+                    if (sentence.status === 'changed' || sentence.status === 'editing') {
+                        return this.theme === 'dark'
+                            ? 'border-sky-900/60 text-sky-300 bg-sky-950/30'
+                            : 'border-sky-200 text-sky-700 bg-sky-50';
+                    }
+                    return this.theme === 'dark'
+                        ? 'border-zinc-700 text-zinc-300 bg-zinc-900/40'
+                        : 'border-gray-200 text-slate-600 bg-slate-50';
+                },
+
+                markSentenceDirty(sentence, status = 'changed') {
+                    sentence.dirty = true;
+                    sentence.status = status;
+                    this.hasUnsavedSubtitleChanges = true;
+                },
+
+                buildIssueList(baseIssues = [], additions = []) {
+                    return Array.from(new Set([...(baseIssues || []), ...(additions || [])].filter(Boolean)));
+                },
+
+                focusSentenceEditor(index) {
+                    this.$nextTick(() => {
+                        const sentence = this.draftSentences[index];
+                        if (!sentence) return;
+                        const el = document.getElementById('sentence-editor-' + sentence.id);
+                        if (el) {
+                            el.focus();
+                            const length = el.value.length;
+                            el.setSelectionRange(length, length);
+                        }
+                    });
+                },
+
+                enterSubtitleEditMode() {
+                    this.isTranscriptEditing = true;
+                    this.isPlaying = false;
+                    this.editingIndex = this.currentIndex;
+                    this.draftSentences = this.sentences.map((sentence) => this.cloneSentence(sentence));
+                    this.draftSentences[this.editingIndex].status = 'editing';
+                    this.hasUnsavedSubtitleChanges = false;
+                    this.focusSentenceEditor(this.editingIndex);
+                },
+
+                startEditingSentence(index) {
+                    if (!this.isTranscriptEditing) return;
+
+                    if (this.editingIndex !== null && this.draftSentences[this.editingIndex]) {
+                        const current = this.draftSentences[this.editingIndex];
+                        current.status = current.dirty ? 'changed' : 'saved';
+                    }
+
+                    this.editingIndex = index;
+                    this.draftSentences[index].status = 'editing';
+                    this.focusSentenceEditor(index);
+                },
+
+                finishEditingSentence() {
+                    if (!this.isTranscriptEditing || this.editingIndex === null) return;
+                    const sentence = this.draftSentences[this.editingIndex];
+                    if (!sentence) return;
+                    sentence.status = sentence.dirty ? 'changed' : 'saved';
+                    this.editingIndex = null;
+                },
+
+                cancelSubtitleEdits() {
+                    this.isTranscriptEditing = false;
+                    this.editingIndex = null;
+                    this.draftSentences = [];
+                    this.hasUnsavedSubtitleChanges = false;
+                    this.showSubtitleToast('已放弃未保存的字幕修改');
+                },
+
+                saveSubtitleEdits() {
+                    if (!this.isTranscriptEditing || !this.hasUnsavedSubtitleChanges) return;
+                    this.sentences = this.draftSentences.map((sentence) => ({
+                        ...this.cloneSentence(sentence),
+                        status: 'saved',
+                        dirty: false,
+                    }));
+                    this.isTranscriptEditing = false;
+                    this.editingIndex = null;
+                    this.draftSentences = [];
+                    this.hasUnsavedSubtitleChanges = false;
+                    this.currentIndex = Math.min(this.currentIndex, this.sentences.length - 1);
+                    this.showSubtitleToast('字幕修改已保存');
+                },
+
+                showSubtitleToast(message) {
+                    this.subtitleToast = message;
+                    if (this.subtitleToastTimer) {
+                        clearTimeout(this.subtitleToastTimer);
+                    }
+                    this.subtitleToastTimer = setTimeout(() => {
+                        this.subtitleToast = '';
+                    }, 2200);
+                },
+
+                updateSentenceDraft(index, value) {
+                    const sentence = this.draftSentences[index];
+                    if (!sentence) return;
+                    sentence.en = value;
+                    sentence.issues = this.buildIssueList(sentence.issues.filter((issue) => issue !== '已拆分，建议检查中文'));
+                    this.markSentenceDirty(sentence);
+                    sentence.status = 'editing';
+                },
+
+                splitSentence(index) {
+                    if (!this.isTranscriptEditing) return;
+
+                    const sentence = this.draftSentences[index];
+                    if (!sentence) return;
+
+                    const editor = document.getElementById('sentence-editor-' + sentence.id);
+                    const cursorPosition = editor ? editor.selectionStart : sentence.en.length;
+                    const left = sentence.en.slice(0, cursorPosition).trim();
+                    const right = sentence.en.slice(cursorPosition).trim();
+
+                    if (!left || !right) {
+                        this.showSubtitleToast('请把光标放在句子中间再断句');
+                        return;
+                    }
+
+                    sentence.en = left;
+                    sentence.issues = this.buildIssueList(
+                        sentence.issues.filter((issue) => issue !== '中文待补充'),
+                        ['已拆分，建议检查中文']
+                    );
+                    this.markSentenceDirty(sentence);
+
+                    const newSentence = {
+                        id: this.sentenceIdCounter++,
+                        en: right,
+                        zh: '',
+                        status: 'new',
+                        dirty: true,
+                        issues: ['中文待补充']
+                    };
+
+                    this.draftSentences.splice(index + 1, 0, newSentence);
+                    this.hasUnsavedSubtitleChanges = true;
+                    this.startEditingSentence(index + 1);
+                    this.showSubtitleToast('已拆分为 2 句');
+                    this.scrollToCurrent();
+                },
+
+                mergeWithPrev(index) {
+                    if (!this.isTranscriptEditing || index === 0) return;
+
+                    const prev = this.draftSentences[index - 1];
+                    const current = this.draftSentences[index];
+                    if (!prev || !current) return;
+
+                    prev.en = `${prev.en.trim()} ${current.en.trim()}`.trim();
+                    prev.issues = this.buildIssueList(prev.issues, ['合并后请检查中文']);
+                    this.markSentenceDirty(prev);
+                    this.draftSentences.splice(index, 1);
+                    this.reconcileIndicesAfterRemoval(index);
+                    this.startEditingSentence(index - 1);
+                    this.showSubtitleToast('已合并到上一句');
+                },
+
+                mergeWithNext(index) {
+                    if (!this.isTranscriptEditing || index >= this.draftSentences.length - 1) return;
+
+                    const current = this.draftSentences[index];
+                    const next = this.draftSentences[index + 1];
+                    if (!current || !next) return;
+
+                    current.en = `${current.en.trim()} ${next.en.trim()}`.trim();
+                    current.issues = this.buildIssueList(current.issues, ['合并后请检查中文']);
+                    this.markSentenceDirty(current);
+                    this.draftSentences.splice(index + 1, 1);
+                    this.reconcileIndicesAfterRemoval(index + 1);
+                    this.startEditingSentence(index);
+                    this.showSubtitleToast('已合并到下一句');
+                },
+
+                removeSentence(index) {
+                    if (!this.isTranscriptEditing || this.draftSentences.length === 1) return;
+
+                    this.draftSentences.splice(index, 1);
+                    this.hasUnsavedSubtitleChanges = true;
+                    this.reconcileIndicesAfterRemoval(index);
+
+                    if (this.draftSentences.length) {
+                        const nextIndex = Math.min(index, this.draftSentences.length - 1);
+                        this.startEditingSentence(nextIndex);
+                    } else {
+                        this.editingIndex = null;
+                    }
+
+                    this.showSubtitleToast('已删除当前句子');
+                },
+
+                reconcileIndicesAfterRemoval(removedIndex) {
+                    if (this.currentIndex > removedIndex) {
+                        this.currentIndex--;
+                    } else if (this.currentIndex >= this.draftSentences.length) {
+                        this.currentIndex = Math.max(0, this.draftSentences.length - 1);
+                    }
+
+                    if (this.editingIndex === removedIndex) {
+                        this.editingIndex = null;
+                    } else if (this.editingIndex > removedIndex) {
+                        this.editingIndex--;
+                    }
+                },
+
+                openPlayer(title) {
+                    if (!this.ensureTranscriptEditingResolved()) return;
+                    this.currentTitle = title;
+                    this.mode = 'listening';
+                    this.isPlaying = true;
+                    // Sidebar stays open on desktop
+                },
+
+                switchMode(newMode) {
+                    if (newMode !== 'listening' && !this.ensureTranscriptEditingResolved()) return;
+                    this.mode = newMode;
+                    this.isPlaying = false;
+                    this.isRecording = false;
+                },
+
+                async openSettings() {
+                    if (!this.ensureTranscriptEditingResolved()) return;
+                    this.lastMode = this.mode;
+                    this.mode = 'settings';
+                    this.isPlaying = false;
+                    this.isRecording = false;
+                    await this.initAudioDevices();
+                },
+
+                closeSettings() {
+                    this.mode = this.lastMode;
+                },
+
+                async initAudioDevices() {
+                    // 模拟设备数据用于界面展示
+                    this.audioInputDevices = [
+                        { deviceId: 'default', label: 'Default - MacBook Pro Microphone (Built-in)' },
+                        { deviceId: 'mic-1', label: 'External USB Microphone' },
+                        { deviceId: 'mic-2', label: 'AirPods Pro Microphone' }
+                    ];
+                    
+                    this.audioOutputDevices = [
+                        { deviceId: 'default', label: 'Default - MacBook Pro Speakers (Built-in)' },
+                        { deviceId: 'spk-1', label: 'External Headphones' },
+                        { deviceId: 'spk-2', label: 'AirPods Pro' }
+                    ];
+
+                    // Set defaults
+                    this.selectedInputId = 'default';
+                    this.selectedOutputId = 'default';
+                },
+
+                playComparison() {
+                    if (this.userAudioUrl) {
+                        console.log("Playing comparison: Original + User");
+                        // 模拟播放对比逻辑
+                        alert("正在播放原音与录音对比...");
+                    }
+                },
+
+                togglePlay() {
+                    if (this.isTranscriptEditing) return;
+                    this.isPlaying = !this.isPlaying;
+                },
+
+                toggleLoop() {
+                    this.isLooping = !this.isLooping;
+                },
+
+                toggleRecording() {
+                    if (!this.isRecording) {
+                        // 开始录音
+                        this.isRecording = true;
+                        this.userAudioUrl = null;
+                    } else {
+                        // 停止录音
+                        this.isRecording = false;
+                        this.userAudioUrl = 'mock_audio_blob'; // 模拟录音完成
+                    }
+                },
+
+                nextSentence() {
+                    if (this.isTranscriptEditing) return;
+                    if (this.currentIndex < this.sentences.length - 1) {
+                        this.currentIndex++;
+                        this.scrollToCurrent();
+                    }
+                },
+
+                prevSentence() {
+                    if (this.isTranscriptEditing) return;
+                    if (this.currentIndex > 0) {
+                        this.currentIndex--;
+                        this.scrollToCurrent();
+                    }
+                },
+
+                jumpTo(index) {
+                    if (this.isTranscriptEditing) return;
+                    this.currentIndex = index;
+                    this.isPlaying = true;
+                },
+                
+                scrollToCurrent() {
+                    // Smooth scroll to the active sentence
+                    this.$nextTick(() => {
+                        const el = document.getElementById('sentence-' + this.currentIndex);
+                        if(el) {
+                            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        }
+                        const shadowEl = document.getElementById('shadow-item-' + this.currentIndex);
+                        if(shadowEl) {
+                            shadowEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        }
+                    });
+                },
+
+                handleKeydown(e) {
+                    const isTextInput = ['TEXTAREA', 'INPUT'].includes(e.target.tagName);
+
+                    // 全局快捷键处理
+                    if(this.mode === 'settings') {
+                        if (e.key === 'Escape') {
+                            this.closeSettings();
+                        }
+                        return; // Settings mode, block other shortcuts
+                    }
+
+                    if (this.isTranscriptEditing) {
+                        if (e.key === 'Escape') {
+                            this.finishEditingSentence();
+                        }
+                        return;
+                    }
+
+                    // 通用快捷键
+                    if (!isTextInput && e.code === 'Space') {
+                        e.preventDefault();
+                        this.togglePlay();
+                    }
+                    
+                    // 导航快捷键
+                    if (!isTextInput && e.code === 'ArrowLeft') {
+                        this.prevSentence();
+                    }
+                    if (!isTextInput && e.code === 'ArrowRight') {
+                        this.nextSentence();
+                    }
+
+                    // 跟读模式专属
+                    if (this.mode === 'shadowing') {
+                        // 录音 (R)
+                        if (e.key.toLowerCase() === 'r') {
+                            this.toggleRecording();
+                        }
+                        // 对比快捷键 (C)
+                        if (e.key.toLowerCase() === 'c' && this.userAudioUrl && !this.isRecording) {
+                            this.playComparison();
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+</body>
+</html>

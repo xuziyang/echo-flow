@@ -27,7 +27,7 @@ const bars = Array.from({ length: 100 }, () => Math.random() * 60 + 20)
     <div class="w-full px-10 h-24 flex items-center justify-center gap-1">
       <div v-for="(_, i) in bars" :key="i"
            class="w-1.5 rounded-full transition-all"
-           :class="player.isPlaying ? 'animate-wave ' : '' + (app.theme === 'dark' ? 'bg-brand-500/40' : 'bg-black/20')"
+           :class="player.isPlaying ? 'animate-wave' : (app.theme === 'dark' ? 'bg-brand-500/40' : 'bg-black/20')"
            :style="`height: ${bars[i]}%`"></div>
     </div>
   </div>

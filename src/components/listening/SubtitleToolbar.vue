@@ -1,8 +1,8 @@
-<!-- src/components/listening/SubtitleToolbar.vue -->
 <script setup lang="ts">
 import { useAppStore } from '../../stores/useAppStore'
 import { usePlayerStore } from '../../stores/usePlayerStore'
 import { useTranscriptStore } from '../../stores/useTranscriptStore'
+import Icon from '../Icon.vue'
 
 const app = useAppStore()
 const player = usePlayerStore()
@@ -17,7 +17,7 @@ const transcript = useTranscriptStore()
               :class="transcript.isEditing
                  ? (app.theme === 'dark' ? 'bg-white text-black border-white' : 'bg-black text-white border-black')
                  : (app.theme === 'dark' ? 'text-gray-300 border-gray-700 hover:border-gray-500 hover:text-white' : 'text-slate-600 border-gray-300 hover:border-gray-400 hover:text-black')">
-        <i class="fa-solid" :class="transcript.isEditing ? 'fa-xmark' : 'fa-pen-to-square'"></i>
+        <Icon :name="transcript.isEditing ? 'xmark' : 'pen-to-square'" />
         <span>{{ transcript.isEditing ? '退出编辑' : '编辑字幕' }}</span>
       </button>
     </div>
@@ -29,7 +29,7 @@ const transcript = useTranscriptStore()
                  ? (app.theme === 'dark' ? 'bg-white text-black border-white' : 'bg-black text-white border-black')
                  : (app.theme === 'dark' ? 'text-gray-600 border-gray-800 cursor-not-allowed' : 'text-gray-300 border-gray-200 cursor-not-allowed')"
               :disabled="!transcript.hasUnsavedChanges">
-        <i class="fa-solid fa-check"></i> 保存
+        <Icon name="check" /> 保存
       </button>
       <button v-if="transcript.isEditing" @click="transcript.cancelEdits(); app.showSubtitleToast('已放弃未保存的字幕修改')"
               class="transition-colors text-[11px] font-bold border px-2.5 py-1 rounded-md"

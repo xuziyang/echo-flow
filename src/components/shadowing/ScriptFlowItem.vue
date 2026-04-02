@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { useAppStore } from '../../stores/useAppStore'
 import { usePlayerStore } from '../../stores/usePlayerStore'
 import { type Sentence } from '../../stores/useTranscriptStore'
+import Icon from '../Icon.vue'
 
 const props = defineProps<{ item: Sentence; index: number }>()
 const emit = defineEmits<{ click: [index: number] }>()
@@ -24,7 +25,7 @@ const isDone = computed(() => props.index < player.currentIndex)
     <!-- Status Icon -->
     <div class="mt-0.5">
       <template v-if="isDone">
-        <i class="fa-solid fa-circle-check text-green-500 text-xs"></i>
+        <Icon name="circle-check" class="text-green-500 text-xs" />
       </template>
       <template v-else-if="isActive">
         <div class="w-2 h-2 rounded-full mt-1.5 animate-pulse"

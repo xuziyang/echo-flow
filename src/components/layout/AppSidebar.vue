@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useAppStore } from '../../stores/useAppStore'
 import { useFilesStore } from '../../stores/useFilesStore'
+import Icon from '../Icon.vue'
 
 const app = useAppStore()
 const files = useFilesStore()
@@ -18,7 +19,7 @@ const files = useFilesStore()
       <h2 class="font-bold text-xs tracking-wider" :class="app.theme === 'dark' ? 'text-gray-400' : 'text-slate-500'">资料库</h2>
       <button @click="files.simulateUpload()" class="w-6 h-6 rounded flex items-center justify-center transition-colors"
               :class="app.theme === 'dark' ? 'hover:bg-white/10 text-gray-500 hover:text-gray-300' : 'hover:bg-slate-200 text-slate-400'">
-        <i class="fa-solid fa-plus text-xs"></i>
+        <Icon name="plus" class="text-xs" />
       </button>
     </div>
     <div class="flex-1 overflow-y-auto no-scrollbar p-2 space-y-1">

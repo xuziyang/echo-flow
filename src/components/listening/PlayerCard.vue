@@ -1,8 +1,8 @@
-<!-- src/components/listening/PlayerCard.vue -->
 <script setup lang="ts">
 import { useAppStore } from '../../stores/useAppStore'
 import WaveformDisplay from './WaveformDisplay.vue'
 import PlaybackControls from './PlaybackControls.vue'
+import Icon from '../Icon.vue'
 
 const app = useAppStore()
 </script>
@@ -15,7 +15,7 @@ const app = useAppStore()
           :class="app.theme === 'dark' ? 'text-brand-400' : 'text-black'">Intensive Listening</h3>
       <button class="transition-colors"
               :class="app.theme === 'dark' ? 'text-gray-500 hover:text-white' : 'text-gray-400 hover:text-black'">
-        <i class="fa-solid fa-ellipsis"></i>
+        <Icon name="ellipsis" />
       </button>
     </div>
     <WaveformDisplay />

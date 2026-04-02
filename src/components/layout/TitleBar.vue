@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useAppStore } from '../../stores/useAppStore'
 import { getCurrentWindow } from '@tauri-apps/api/window'
+import Icon from '../Icon.vue'
 
 const app = useAppStore()
 
@@ -16,12 +17,12 @@ function startDrag() {
        @mousedown="startDrag">
     <div class="flex gap-4 text-xs opacity-60 items-center" @mousedown.stop>
       <button @click="app.toggleTheme()" class="hover:text-brand-500 cursor-pointer transition-colors focus:outline-none" title="Toggle theme">
-        <i :class="app.theme === 'dark' ? 'fa-sun' : 'fa-moon'" class="fa-solid"></i>
+        <Icon :name="app.theme === 'dark' ? 'sun' : 'moon'" />
       </button>
       <button @click="app.openSettings()" class="hover:text-brand-500 cursor-pointer transition-colors focus:outline-none" title="Settings">
-        <i class="fa-solid fa-gear"></i>
+        <Icon name="gear" />
       </button>
-      <i class="fa-regular fa-bell hover:text-brand-500 cursor-pointer transition-colors" title="Notifications"></i>
+      <Icon name="bell" class="hover:text-brand-500 cursor-pointer transition-colors" title="Notifications" />
     </div>
   </div>
 </template>

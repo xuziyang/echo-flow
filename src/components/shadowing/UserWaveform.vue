@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useAppStore } from '../../stores/useAppStore'
 import { useRecordingStore } from '../../stores/useRecordingStore'
+import Icon from '../Icon.vue'
 
 const app = useAppStore()
 const recording = useRecordingStore()
@@ -22,7 +23,7 @@ const animBars = Array.from({ length: 100 }, () => Math.random() * 80 + 10)
               class="px-3 py-1.5 text-xs font-medium rounded border transition-colors flex items-center gap-2"
               :class="app.theme === 'dark' ? 'bg-zinc-200 hover:bg-white text-black border-zinc-200' : 'bg-black hover:bg-gray-800 text-white border-black'"
               title="快捷键: C">
-        <i class="fa-solid fa-code-compare"></i> Contrast
+        <Icon name="code-compare" /> Contrast
       </button>
     </div>
 

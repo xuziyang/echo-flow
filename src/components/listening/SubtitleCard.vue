@@ -1,10 +1,10 @@
-<!-- src/components/listening/SubtitleCard.vue -->
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useAppStore } from '../../stores/useAppStore'
 import { usePlayerStore } from '../../stores/usePlayerStore'
 import { useTranscriptStore, type Sentence } from '../../stores/useTranscriptStore'
 import SentenceEditor from './SentenceEditor.vue'
+import Icon from '../Icon.vue'
 
 const props = defineProps<{ item: Sentence; index: number }>()
 const emit = defineEmits<{ split: [index: number] }>()
@@ -74,7 +74,7 @@ const badgeClass = (status: string) => {
                 class="w-7 h-7 rounded-md border text-[11px] transition-colors"
                 :class="app.theme === 'dark' ? 'border-zinc-700 text-zinc-400 hover:text-white hover:border-zinc-500' : 'border-gray-300 text-slate-500 hover:text-black hover:border-gray-400'"
                 title="编辑">
-          <i class="fa-solid fa-pen"></i>
+          <Icon name="pen" />
         </button>
         <button @click.stop="emit('split', index)"
                 class="px-2 h-7 rounded-md border text-[10px] font-bold transition-colors"
@@ -98,7 +98,7 @@ const badgeClass = (status: string) => {
                    ? (app.theme === 'dark' ? 'border-zinc-800 text-zinc-700 cursor-not-allowed' : 'border-gray-200 text-gray-300 cursor-not-allowed')
                    : (app.theme === 'dark' ? 'border-red-900/60 text-red-400 hover:border-red-500 hover:text-red-300' : 'border-red-200 text-red-500 hover:border-red-400 hover:text-red-600')"
                 :disabled="isTotalLast" title="删除">
-          <i class="fa-solid fa-trash"></i>
+          <Icon name="trash" />
         </button>
       </div>
     </div>

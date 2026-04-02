@@ -3,6 +3,7 @@ import { useAppStore } from '../../stores/useAppStore'
 import { usePlayerStore } from '../../stores/usePlayerStore'
 import { useTranscriptStore } from '../../stores/useTranscriptStore'
 import WaveformComparison from './WaveformComparison.vue'
+import Icon from '../Icon.vue'
 
 const app = useAppStore()
 const player = usePlayerStore()
@@ -17,7 +18,7 @@ const transcript = useTranscriptStore()
         <button @click="app.switchMode('listening')"
                 class="text-sm mb-2 flex items-center gap-1 transition-colors"
                 :class="app.theme === 'dark' ? 'text-gray-500 hover:text-white' : 'text-gray-400 hover:text-black'">
-          <i class="fa-solid fa-arrow-left"></i> Back to Listening
+          <Icon name="arrow-left" /> Back to Listening
         </button>
         <h3 class="text-lg font-bold" :class="app.theme === 'dark' ? 'text-white' : 'text-black'">Shadowing Challenge</h3>
       </div>
@@ -34,7 +35,7 @@ const transcript = useTranscriptStore()
                 :class="app.theme === 'dark' ? 'hover:bg-white/10 text-gray-500 hover:text-white' : 'hover:bg-black/5 text-gray-400 hover:text-black'"
                 :disabled="player.currentIndex === 0"
                 :style="player.currentIndex === 0 ? 'opacity: 0.3; cursor: not-allowed;' : ''">
-          <i class="fa-solid fa-chevron-left text-lg"></i>
+          <Icon name="chevron-left" class="text-lg" />
         </button>
 
         <div class="text-center flex-1">
@@ -51,7 +52,7 @@ const transcript = useTranscriptStore()
                 :class="app.theme === 'dark' ? 'hover:bg-white/10 text-gray-500 hover:text-white' : 'hover:bg-black/5 text-gray-400 hover:text-black'"
                 :disabled="player.currentIndex === transcript.sentences.length - 1"
                 :style="player.currentIndex === transcript.sentences.length - 1 ? 'opacity: 0.3; cursor: not-allowed;' : ''">
-          <i class="fa-solid fa-chevron-right text-lg"></i>
+          <Icon name="chevron-right" class="text-lg" />
         </button>
       </div>
 

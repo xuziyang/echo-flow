@@ -2,6 +2,7 @@
 <script setup lang="ts">
 import { useAppStore } from '../stores/useAppStore'
 import { useSettingsStore } from '../stores/useSettingsStore'
+import Icon from '../components/Icon.vue'
 
 const app = useAppStore()
 const settings = useSettingsStore()
@@ -16,7 +17,7 @@ const settings = useSettingsStore()
       <!-- Close Button -->
       <button @click="app.closeSettings()"
               class="absolute top-4 right-4 text-gray-500 hover:text-gray-700 transition-colors focus:outline-none">
-        <i class="fa-solid fa-xmark text-xl"></i>
+        <Icon name="xmark" class="text-xl" />
       </button>
 
       <h2 class="text-2xl font-bold mb-6" :class="app.theme === 'dark' ? 'text-white' : 'text-black'">Settings</h2>
@@ -33,7 +34,7 @@ const settings = useSettingsStore()
               <option v-for="lang in settings.languages" :key="lang.code" :value="lang.code">{{ lang.label }}</option>
             </select>
             <div class="absolute inset-y-0 right-0 flex items-center px-3 pointer-events-none text-gray-500">
-              <i class="fa-solid fa-globe text-xs"></i>
+              <Icon name="globe" class="text-xs" />
             </div>
           </div>
           <p class="mt-2 text-xs text-gray-500">Choose your preferred language for the application interface.</p>
@@ -53,7 +54,7 @@ const settings = useSettingsStore()
               </option>
             </select>
             <div class="absolute inset-y-0 right-0 flex items-center px-3 pointer-events-none text-gray-500">
-              <i class="fa-solid fa-microphone text-xs"></i>
+              <Icon name="microphone" class="text-xs" />
             </div>
           </div>
           <p class="mt-2 text-xs text-gray-500">Select the device you want to use for recording your voice.</p>
@@ -72,7 +73,7 @@ const settings = useSettingsStore()
               </option>
             </select>
             <div class="absolute inset-y-0 right-0 flex items-center px-3 pointer-events-none text-gray-500">
-              <i class="fa-solid fa-volume-high text-xs"></i>
+              <Icon name="volume-high" class="text-xs" />
             </div>
           </div>
           <p class="mt-2 text-xs text-gray-500">Note: Output device selection depends on browser support.</p>

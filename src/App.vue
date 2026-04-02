@@ -11,13 +11,12 @@ const app = useAppStore()
 </script>
 
 <template>
-  <div class="h-screen w-screen overflow-hidden flex flex-col select-none"
-       :class="app.theme === 'dark' ? 'text-dark-text' : 'text-light-text'">
+  <div class="h-screen w-screen overflow-hidden flex flex-col select-none transition-colors duration-300"
+       :class="app.theme === 'dark' ? 'text-dark-text bg-dark-bg' : 'text-light-text bg-light-bg'">
     <TitleBar />
     <div class="flex-1 flex overflow-hidden relative w-full">
       <AppSidebar />
-      <main class="flex-1 flex overflow-hidden relative transition-colors duration-300"
-            :class="app.theme === 'dark' ? 'bg-dark-bg' : 'bg-light-bg'">
+      <main class="flex-1 flex overflow-hidden relative">
         <ListeningView v-if="app.mode === 'listening'" />
         <ShadowingView v-if="app.mode === 'shadowing'" />
         <SettingsView v-if="app.mode === 'settings'" />

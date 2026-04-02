@@ -34,7 +34,7 @@ const app = useAppStore()
       <!-- Bottom CTA -->
       <div class="w-full max-w-3xl mt-4 flex-shrink-0 z-20">
         <button @click="app.switchMode('shadowing')"
-                class="w-full font-medium py-4 rounded border border-transparent transition-all hover:translate-y-[-1px] flex items-center justify-center gap-2 group tracking-wide"
+                class="w-full font-medium py-2.5 rounded border border-transparent transition-all hover:translate-y-[-1px] flex items-center justify-center gap-2 group tracking-wide"
                 :class="app.theme === 'dark' ? 'bg-zinc-100 hover:bg-white text-black' : 'bg-black hover:bg-gray-800 text-white'">
           Start Speaking Practice
           <i class="fa-solid fa-microphone transition-colors" :class="app.theme === 'dark' ? 'group-hover:text-red-500' : 'group-hover:text-red-400'"></i>

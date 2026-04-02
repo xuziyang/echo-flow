@@ -19,8 +19,7 @@ const bars = Array.from({ length: 100 }, () => Math.random() * 60 + 20)
     <div class="absolute top-4 right-4 z-10 flex items-center gap-2">
       <button @click="player.toggleMute()" class="w-5 focus:outline-none text-right" title="Mute/Unmute">
         <i class="fa-solid transition-colors text-sm"
-           :class="player.volume == 0 ? 'fa-volume-xmark' : (player.volume < 50 ? 'fa-volume-low' : 'fa-volume-high')"
-           :class="app.theme === 'dark' ? 'text-gray-500' : 'text-gray-400'"></i>
+           :class="[player.volume == 0 ? 'fa-volume-xmark' : (player.volume < 50 ? 'fa-volume-low' : 'fa-volume-high'), app.theme === 'dark' ? 'text-gray-500' : 'text-gray-400']"></i>
       </button>
     </div>
 

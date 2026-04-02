@@ -1,13 +1,11 @@
 <!-- src/components/listening/ListeningView.vue -->
 <script setup lang="ts">
 import { useAppStore } from '../../stores/useAppStore'
-import { usePlayerStore } from '../../stores/usePlayerStore'
 import PlayerCard from './PlayerCard.vue'
 import SubtitleToolbar from './SubtitleToolbar.vue'
 import SubtitleList from './SubtitleList.vue'
 
 const app = useAppStore()
-const player = usePlayerStore()
 </script>
 
 <template>

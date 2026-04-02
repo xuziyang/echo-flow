@@ -4,7 +4,7 @@ import { ref, onMounted, nextTick } from 'vue'
 import { useAppStore } from '../../stores/useAppStore'
 import { useTranscriptStore } from '../../stores/useTranscriptStore'
 
-const props = defineProps<{ index: number; sentenceId: number }>()
+defineProps<{ index: number; sentenceId: number }>()
 const app = useAppStore()
 const transcript = useTranscriptStore()
 const textareaRef = ref<HTMLTextAreaElement | null>(null)

@@ -52,8 +52,7 @@ function volumeIcon() {
     <div class="flex items-center gap-4 text-xs font-mono text-gray-500 justify-self-end">
       <div class="flex items-center gap-2 group mr-2">
         <button @click="player.toggleMute()" class="w-5 focus:outline-none text-right" title="Mute/Unmute">
-          <i class="fa-solid transition-colors text-sm" :class="volumeIcon()"
-             :class="app.theme === 'dark' ? 'text-gray-400 group-hover:text-white' : 'text-gray-400 group-hover:text-black'"></i>
+          <i class="fa-solid transition-colors text-sm" :class="[volumeIcon(), app.theme === 'dark' ? 'text-gray-400 group-hover:text-white' : 'text-gray-400 group-hover:text-black']"></i>
         </button>
         <input type="range" min="0" max="100" v-model.number="player.volume" class="w-16 cursor-pointer">
       </div>

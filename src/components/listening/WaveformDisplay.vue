@@ -1,10 +1,7 @@
 <!-- src/components/listening/WaveformDisplay.vue -->
 <script setup lang="ts">
-import { usePlayerStore } from '../../stores/usePlayerStore'
 import { useAppStore } from '../../stores/useAppStore'
-import { computed } from 'vue'
 
-const player = usePlayerStore()
 const app = useAppStore()
 
 // 120 static bars with random heights (generated once on mount)

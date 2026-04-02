@@ -24,7 +24,7 @@ export const useTranscriptStore = defineStore('transcript', () => {
   const editingIndex = ref<number | null>(null)
   const draftSentences = ref<Sentence[]>([])
   const hasUnsavedChanges = ref(false)
-  const sentenceIdCounter = ref(7)
+  const sentenceIdCounter = ref(7) // TODO: wire to splitSentence/removeSentence when editing flow is complete
 
   const displaySentences = computed(() => isEditing.value ? draftSentences.value : sentences.value)
 

@@ -25,6 +25,6 @@ export const useAppStore = defineStore('app', () => {
     toastTimer.value = setTimeout(() => { toast.value = '' }, 2200)
   }
 
-  return { mode, lastMode, theme, showSidebar, currentTitle, toast, toastTimer,
+  return { mode, lastMode, theme, showSidebar, currentTitle, toast,
            toggleTheme, switchMode, openSettings, closeSettings, toggleSidebar, showSubtitleToast }
 })

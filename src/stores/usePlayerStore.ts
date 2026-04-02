@@ -20,7 +20,7 @@ export const usePlayerStore = defineStore('player', () => {
   function setVolume(v: number) { volume.value = v }
   function setCurrentIndex(i: number) { currentIndex.value = i }
   function prevSentence() { if (currentIndex.value > 0) currentIndex.value-- }
-  function nextSentence() { currentIndex.value++ }
+  function nextSentence(maxIndex: number) { if (currentIndex.value < maxIndex) currentIndex.value++ }
   function toggleEn() { showEn.value = !showEn.value }
   function toggleZh() { showZh.value = !showZh.value }
 

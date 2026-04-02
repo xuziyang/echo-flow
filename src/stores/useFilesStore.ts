@@ -16,7 +16,7 @@ export const useFilesStore = defineStore('files', () => {
     { id: 3, title: "Business Meeting 101", date: "3d ago", duration: "05:30" },
   ])
 
-  function simulateUpload() { /* 静态原型 */ }
+  function simulateUpload() { /* TODO: wire to file upload API */ }
 
   return { files, simulateUpload }
 })

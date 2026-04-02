@@ -4,7 +4,7 @@ import { ref } from 'vue'
 
 export const useAppStore = defineStore('app', () => {
   const mode = ref<'listening' | 'shadowing' | 'settings'>('listening')
-  const lastMode = ref('listening')
+  const lastMode = ref<'listening' | 'shadowing' | 'settings'>('listening')
   const theme = ref<'dark' | 'light'>('dark')
   const showSidebar = ref(true)
   const currentTitle = ref('Lesson 1: Mastering Daily Greetings')

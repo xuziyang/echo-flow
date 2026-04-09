@@ -160,7 +160,7 @@ export const usePlayerStore = defineStore('player', () => {
   }
 
   async function seekTo(ms: number) {
-    const state = await invoke<PlaybackState>('seek_playback', { positionMs: ms })
+    const state = await invoke<PlaybackState>('seek_playback', { position_ms: ms })
     calibratePosition(state)
     if (state.is_playing) {
       startPositionExtrapolation()

@@ -22,9 +22,9 @@ const seekPercent = computed(() => {
 })
 
 const seekTrackStyle = computed(() => ({
-  background: app.theme === 'dark'
-    ? `linear-gradient(to right, #f4f4f5 ${seekPercent.value}%, #3f3f46 ${seekPercent.value}%)`
-    : `linear-gradient(to right, #18181b ${seekPercent.value}%, #d4d4d8 ${seekPercent.value}%)`
+  '--seek-track-bg': app.theme === 'dark'
+    ? `linear-gradient(to right, #f4f4f5 0%, #f4f4f5 ${seekPercent.value}%, #3f3f46 ${seekPercent.value}%, #3f3f46 100%)`
+    : `linear-gradient(to right, #18181b 0%, #18181b ${seekPercent.value}%, #d4d4d8 ${seekPercent.value}%, #d4d4d8 100%)`
 }))
 const volumeTrackStyle = computed(() => ({
   '--volume-track-bg': app.theme === 'dark'
@@ -192,11 +192,14 @@ watch(() => player.durationMs, (duration) => {
 .seek-slider {
   -webkit-appearance: none;
   appearance: none;
+  background: transparent;
+  border: 0;
 }
 
 .seek-slider::-webkit-slider-runnable-track {
   height: 4px;
   border-radius: 999px;
+  background: var(--seek-track-bg);
 }
 
 .seek-slider::-webkit-slider-thumb {

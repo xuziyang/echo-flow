@@ -21,7 +21,6 @@ pub struct TranscribeProgress {
 pub struct TranscriptSegment {
     pub id: i64,
     pub en: String,
-    pub zh: String,
     pub start_ms: i64,
     pub end_ms: i64,
 }
@@ -173,7 +172,6 @@ fn align_sentences_to_timeline(sentences: Vec<String>, full_chars: &[char], char
         segments.push(TranscriptSegment {
             id: (idx + 1) as i64,
             en: sentence,
-            zh: String::new(),
             start_ms,
             end_ms,
         });

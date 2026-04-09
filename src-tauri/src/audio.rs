@@ -494,7 +494,6 @@ pub fn get_waveform_samples(num_samples: usize) -> Vec<f32> {
 pub struct SubtitleEntry {
     pub id: i64,
     pub en: String,
-    pub zh: String,
     pub start_ms: Option<u64>,
     pub end_ms: Option<u64>,
 }
@@ -513,11 +512,9 @@ pub fn load_subtitle_file(path: String) -> Result<Vec<SubtitleEntry>, String> {
         .into_iter()
         .enumerate()
         .map(|(idx, sub): (usize, SubTitle)| {
-            let (en, zh) = split_bilingual(&sub.text);
             SubtitleEntry {
                 id: (idx + 1) as i64,
-                en,
-                zh,
+                en: sub.text.trim().to_string(),
                 start_ms: Some(srt_time_to_ms(&sub.start_time)),
                 end_ms: Some(srt_time_to_ms(&sub.end_time)),
             }
@@ -553,11 +550,7 @@ pub fn save_subtitle_file(path: String, entries: Vec<SubtitleEntry>) -> Result<(
         let end_ms = entry.end_ms.unwrap_or(fallback_end_ms.max(start_ms + 500));
         let start = ms_to_srt_time(start_ms);
         let end = ms_to_srt_time(end_ms);
-        let text = if entry.zh.is_empty() {
-            entry.en.clone()
-        } else {
-            format!("{} | {}", entry.en, entry.zh)
-        };
+        let text = entry.en.clone();
         output.push_str(&format!("{}\n{} --> {}\n{}\n\n", idx + 1, start, end, text));
     }
 
@@ -567,16 +560,6 @@ pub fn save_subtitle_file(path: String, entries: Vec<SubtitleEntry>) -> Result<(
         .map_err(|e| format!("写入字幕文件失败: {}", e))?;
 
     Ok(())
-}
-
-/// 尝试用 | 分隔双语字幕文本
-fn split_bilingual(text: &str) -> (String, String) {
-    let text = text.trim();
-    if let Some(pos) = text.find('|') {
-        let (en, zh) = text.split_at(pos);
-        return (en.trim().to_string(), zh[1..].trim().to_string());
-    }
-    (text.to_string(), String::new())
 }
 
 /// 保存录音数据到文件
@@ -592,20 +575,6 @@ pub fn save_recording(path: String, data: Vec<u8>) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_split_bilingual() {
-        let (en, zh) = split_bilingual("Hello world | 你好世界");
-        assert_eq!(en, "Hello world");
-        assert_eq!(zh, "你好世界");
-    }
-
-    #[test]
-    fn test_split_bilingual_no_pipe() {
-        let (en, zh) = split_bilingual("Hello world");
-        assert_eq!(en, "Hello world");
-        assert_eq!(zh, "");
-    }
 
     #[test]
     fn test_ms_to_srt_time() {

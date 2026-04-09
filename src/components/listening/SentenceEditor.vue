@@ -38,7 +38,7 @@ onMounted(() => {
     </div>
     <div class="text-[10px] tracking-[0.12em] uppercase"
          :class="app.theme === 'dark' ? 'text-zinc-500' : 'text-slate-400'">
-      回车按光标断句，Cmd/Ctrl + Enter 完成当前行
+      Press Enter to split at the cursor. Cmd/Ctrl + Enter finishes the current line.
     </div>
   </div>
 </template>

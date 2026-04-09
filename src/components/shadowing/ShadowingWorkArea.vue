@@ -42,9 +42,6 @@ const transcript = useTranscriptStore()
           <p class="text-2xl font-medium" :class="app.theme === 'dark' ? 'text-white' : 'text-black'">
             {{ transcript.sentences[player.currentIndex]?.en }}
           </p>
-          <p class="mt-4" :class="app.theme === 'dark' ? 'text-gray-500' : 'text-gray-400'">
-            {{ transcript.sentences[player.currentIndex]?.zh }}
-          </p>
         </div>
 
         <button @click="player.nextSentence(transcript.sentences.length - 1)"

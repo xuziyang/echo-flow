@@ -136,13 +136,5 @@ const badgeClass = (status: string) => {
         {{ issue }}
       </span>
     </div>
-
-    <!-- Chinese translation -->
-    <div class="overflow-hidden transition-all duration-300"
-         :class="player.showZh ? 'max-h-20 mt-2 opacity-100' : 'max-h-0 opacity-0'">
-      <p class="text-xs leading-5" :class="app.theme === 'dark' ? 'text-gray-500' : 'text-gray-400'">
-        {{ item.zh || '待补充中文翻译' }}
-      </p>
-    </div>
   </div>
 </template>

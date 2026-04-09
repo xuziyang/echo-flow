@@ -23,23 +23,6 @@ const settings = useSettingsStore()
       <h2 class="text-2xl font-bold mb-6" :class="app.theme === 'dark' ? 'text-white' : 'text-black'">Settings</h2>
 
       <div class="space-y-6">
-        <!-- Interface Language -->
-        <div>
-          <label class="block text-xs font-bold uppercase tracking-wider mb-2"
-                 :class="app.theme === 'dark' ? 'text-brand-400' : 'text-gray-500'">Interface Language</label>
-          <div class="relative">
-            <select v-model="settings.selectedLanguage"
-                    class="w-full p-3 rounded-lg border appearance-none focus:ring-2 focus:ring-brand-500 focus:border-transparent outline-none transition-all"
-                    :class="app.theme === 'dark' ? 'bg-dark-bg border-gray-700 text-white' : 'bg-white border-gray-300 text-black'">
-              <option v-for="lang in settings.languages" :key="lang.code" :value="lang.code">{{ lang.label }}</option>
-            </select>
-            <div class="absolute inset-y-0 right-0 flex items-center px-3 pointer-events-none text-gray-500">
-              <Icon name="globe" class="text-xs" />
-            </div>
-          </div>
-          <p class="mt-2 text-xs text-gray-500">Choose your preferred language for the application interface.</p>
-        </div>
-
         <!-- Input Device -->
         <div>
           <label class="block text-xs font-bold uppercase tracking-wider mb-2"

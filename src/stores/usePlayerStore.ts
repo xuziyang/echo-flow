@@ -37,7 +37,6 @@ export const usePlayerStore = defineStore('player', () => {
   const volume = ref(80)
   const lastVolume = ref(80)
   const showEn = ref(true)
-  const showZh = ref(false)
   const currentPath = ref('')
   const positionMs = ref(0)
   const durationMs = ref(0)
@@ -208,13 +207,12 @@ export const usePlayerStore = defineStore('player', () => {
   function prevSentence() { if (currentIndex.value > 0) currentIndex.value-- }
   function nextSentence(maxIndex: number) { if (currentIndex.value < maxIndex) currentIndex.value++ }
   function toggleEn() { showEn.value = !showEn.value }
-  function toggleZh() { showZh.value = !showZh.value }
 
   return {
-    isPlaying, isLooping, currentIndex, volume, lastVolume, showEn, showZh,
+    isPlaying, isLooping, currentIndex, volume, lastVolume, showEn,
     currentPath, positionMs, durationMs, waveformSamples, waveformZoom,
     startPlayback, togglePlay, stopPlayback, seekTo,
     toggleLoop, toggleMute, setVolume, setCurrentIndex, prevSentence, nextSentence,
-    toggleEn, toggleZh, setWaveformZoom, zoomInWaveform, zoomOutWaveform, resetWaveformZoom,
+    toggleEn, setWaveformZoom, zoomInWaveform, zoomOutWaveform, resetWaveformZoom,
   }
 })

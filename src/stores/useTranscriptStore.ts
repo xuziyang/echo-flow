@@ -7,7 +7,6 @@ import { listen } from '@tauri-apps/api/event'
 export interface Sentence {
   id: number
   en: string
-  zh: string
   status: 'saved' | 'new' | 'changed' | 'editing'
   dirty: boolean
   issues: string[]
@@ -18,7 +17,6 @@ export interface Sentence {
 export interface SubtitleEntry {
   id: number
   en: string
-  zh: string
   start_ms?: number
   end_ms?: number
 }
@@ -26,7 +24,6 @@ export interface SubtitleEntry {
 export interface TranscriptSegment {
   id: number
   en: string
-  zh: string
   start_ms: number
   end_ms: number
 }
@@ -98,7 +95,6 @@ export const useTranscriptStore = defineStore('transcript', () => {
     if (!s) return
     s.en = value
     s.dirty = true
-    s.issues = s.issues.filter(i => i !== '已拆分，建议检查中文')
     hasUnsavedChanges.value = true
     s.status = 'editing'
   }
@@ -109,7 +105,6 @@ export const useTranscriptStore = defineStore('transcript', () => {
     sentences.value = entries.map(e => ({
       id: e.id,
       en: e.en,
-      zh: e.zh,
       status: 'saved' as const,
       dirty: false,
       issues: [],
@@ -126,7 +121,6 @@ export const useTranscriptStore = defineStore('transcript', () => {
     const entries: SubtitleEntry[] = sentences.value.map(s => ({
       id: s.id,
       en: s.en,
-      zh: s.zh,
       start_ms: s.start_ms,
       end_ms: s.end_ms,
     }))
@@ -161,7 +155,6 @@ export const useTranscriptStore = defineStore('transcript', () => {
       sentences.value = event.payload.map((seg, idx) => ({
         id: seg.id ?? idx + 1,
         en: seg.en,
-        zh: seg.zh,
         status: 'saved' as const,
         dirty: false,
         issues: [],

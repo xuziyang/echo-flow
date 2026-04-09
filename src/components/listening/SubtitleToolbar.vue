@@ -43,12 +43,6 @@ const transcript = useTranscriptStore()
                  : (app.theme === 'dark' ? 'text-gray-500 border-gray-700 hover:border-gray-500' : 'text-gray-400 border-gray-300 hover:border-gray-400')">
         EN
       </button>
-      <button @click="player.toggleZh()" class="transition-colors text-[11px] font-bold border px-2 py-1 rounded-md"
-              :class="player.showZh
-                 ? (app.theme === 'dark' ? 'bg-white text-black border-white' : 'bg-black text-white border-black')
-                 : (app.theme === 'dark' ? 'text-gray-500 border-gray-700 hover:border-gray-500' : 'text-gray-400 border-gray-300 hover:border-gray-400')">
-        中
-      </button>
     </div>
   </div>
 </template>

@@ -1,37 +1,37 @@
-<!-- src/components/listening/WaveformDisplay.vue -->
 <script setup lang="ts">
+import { computed, ref } from 'vue'
 import { useAppStore } from '../../stores/useAppStore'
+import { usePlayerStore } from '../../stores/usePlayerStore'
+import { useWaveform } from '../../composables/useWaveform'
 
 const app = useAppStore()
+const player = usePlayerStore()
+const canvasRef = ref<HTMLCanvasElement | null>(null)
 
-// 120 static bars with random heights (generated once on mount)
-const bars = Array.from({ length: 120 }, () => ({
-  height: Math.random() * 80 + 20,
-  isActive: false,
+const progress = computed(() =>
+  player.durationMs > 0 ? player.positionMs / player.durationMs : 0
+)
+
+const colors = computed(() => ({
+  activeColor: app.theme === 'dark' ? '#6366f1' : '#4f46e5',
+  inactiveColor: app.theme === 'dark' ? 'rgba(99,102,241,0.3)' : 'rgba(79,70,229,0.25)',
+  playedColor: app.theme === 'dark' ? '#818cf8' : '#6366f1',
 }))
 
-function getBarClass(bar: { height: number; isActive: boolean }) {
-  if (app.theme === 'dark') {
-    return bar.isActive ? 'bg-brand-500' : 'bg-gray-700'
-  }
-  return bar.isActive ? 'bg-black' : 'bg-gray-300'
-}
+useWaveform(canvasRef, {
+  samples: computed(() => player.waveformSamples),
+  isPlaying: computed(() => player.isPlaying),
+  progress,
+  activeColor: colors.value.activeColor,
+  inactiveColor: colors.value.inactiveColor,
+  playedColor: colors.value.playedColor,
+})
 </script>
 
 <template>
   <div class="flex flex-col gap-2">
-    <div class="h-16 flex items-center gap-[2px] overflow-hidden relative">
-      <div v-for="(bar, i) in bars" :key="i"
-           class="w-1 rounded-full transition-all duration-150"
-           :class="getBarClass(bar)"
-           :style="`height: ${bar.height}%`">
-      </div>
-      <!-- Progress indicator at 37% -->
-      <div class="absolute left-[37%] top-0 bottom-0 w-0.5 flex flex-col items-center justify-center"
-           :class="app.theme === 'dark' ? 'bg-white' : 'bg-black'">
-        <div class="w-3 h-3 rounded-full border-2 shadow-lg"
-             :class="app.theme === 'dark' ? 'bg-brand-500 border-white' : 'bg-black border-white'"></div>
-      </div>
+    <div class="h-16 relative">
+      <canvas ref="canvasRef" class="absolute inset-0 w-full h-full" />
     </div>
   </div>
 </template>

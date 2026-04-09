@@ -17,7 +17,7 @@ const files = useFilesStore()
     <div class="h-14 border-b flex items-center justify-between px-4 flex-shrink-0 transition-colors duration-300"
          :class="app.theme === 'dark' ? 'border-gray-800/50' : 'border-gray-200'">
       <h2 class="font-bold text-xs tracking-wider" :class="app.theme === 'dark' ? 'text-gray-400' : 'text-slate-500'">资料库</h2>
-      <button @click="files.simulateUpload()" class="w-6 h-6 rounded flex items-center justify-center transition-colors"
+      <button @click="files.openFile()" class="w-6 h-6 rounded flex items-center justify-center transition-colors"
               :class="app.theme === 'dark' ? 'hover:bg-white/10 text-gray-500 hover:text-gray-300' : 'hover:bg-slate-200 text-slate-400'">
         <Icon name="plus" class="text-xs" />
       </button>
@@ -37,7 +37,7 @@ const files = useFilesStore()
         </h3>
         <div class="flex justify-between text-[10px]" :class="app.theme === 'dark' ? 'text-gray-500' : 'text-slate-400'">
           <span>{{ file.date }}</span>
-          <span>{{ file.duration }}</span>
+          <span>{{ files.formatDuration(file.duration_ms) }}</span>
         </div>
       </div>
     </div>

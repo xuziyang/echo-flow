@@ -8,6 +8,14 @@ const player = usePlayerStore()
 const app = useAppStore()
 const transcript = useTranscriptStore()
 
+function formatTime(ms: number): string {
+  if (!ms || ms < 0) return '00:00'
+  const totalSecs = Math.floor(ms / 1000)
+  const m = Math.floor(totalSecs / 60)
+  const s = totalSecs % 60
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+}
+
 function volumeIcon() {
   if (player.volume === 0) return 'volume-xmark'
   if (player.volume < 50) return 'volume-low'
@@ -56,7 +64,7 @@ function volumeIcon() {
         </button>
         <input type="range" min="0" max="100" v-model.number="player.volume" class="w-16 cursor-pointer">
       </div>
-      <span>00:36 / 01:30</span>
+      <span>{{ formatTime(player.positionMs) }} / {{ formatTime(player.durationMs) }}</span>
       <span class="cursor-pointer transition-colors"
             :class="app.theme === 'dark' ? 'text-gray-400 hover:text-white' : 'text-gray-400 hover:text-black'">1x</span>
     </div>

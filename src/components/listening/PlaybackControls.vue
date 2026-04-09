@@ -16,6 +16,16 @@ const seekBarMax = computed(() => Math.max(0, player.durationMs || 0))
 const displayedPositionMs = computed(() => (
   isSeeking.value ? seekDraftMs.value : player.positionMs
 ))
+const seekPercent = computed(() => {
+  if (seekBarMax.value <= 0) return 0
+  return Math.max(0, Math.min(100, (displayedPositionMs.value / seekBarMax.value) * 100))
+})
+
+const seekTrackStyle = computed(() => ({
+  background: app.theme === 'dark'
+    ? `linear-gradient(to right, #f4f4f5 ${seekPercent.value}%, #3f3f46 ${seekPercent.value}%)`
+    : `linear-gradient(to right, #18181b ${seekPercent.value}%, #d4d4d8 ${seekPercent.value}%)`
+}))
 
 function clampSeekMs(ms: number) {
   const max = seekBarMax.value
@@ -75,20 +85,32 @@ watch(() => player.durationMs, (duration) => {
 </script>
 
 <template>
-  <div class="flex flex-col gap-3">
-    <input
-      type="range"
-      min="0"
-      :max="seekBarMax"
-      :value="displayedPositionMs"
-      :disabled="seekBarMax <= 0"
-      class="w-full h-1.5 rounded-lg cursor-pointer accent-brand-500 disabled:cursor-not-allowed disabled:opacity-40"
-      :class="app.theme === 'dark' ? 'bg-dark-bg' : 'bg-gray-200'"
-      @pointerdown="onSeekPointerDown"
-      @input="onSeekInput"
-      @change="commitSeek"
-      @pointerup="commitSeek"
-    />
+  <div class="flex flex-col gap-4">
+    <div class="flex items-center gap-3">
+      <span class="text-[11px] font-mono tabular-nums"
+            :class="app.theme === 'dark' ? 'text-gray-400' : 'text-gray-500'">
+        {{ formatTime(displayedPositionMs) }}
+      </span>
+
+      <input
+        type="range"
+        min="0"
+        :max="seekBarMax"
+        :value="displayedPositionMs"
+        :disabled="seekBarMax <= 0"
+        class="seek-slider w-full h-1 rounded-full cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
+        @pointerdown="onSeekPointerDown"
+        @input="onSeekInput"
+        @change="commitSeek"
+        @pointerup="commitSeek"
+        :style="seekTrackStyle"
+      />
+
+      <span class="text-[11px] font-mono tabular-nums"
+            :class="app.theme === 'dark' ? 'text-gray-400' : 'text-gray-500'">
+        {{ formatTime(player.durationMs) }}
+      </span>
+    </div>
 
     <div class="grid grid-cols-3 items-center">
     <!-- Left: Rewind -->
@@ -122,7 +144,7 @@ watch(() => player.durationMs, (duration) => {
         </button>
       </div>
 
-    <!-- Right: Volume + Time -->
+    <!-- Right: Volume -->
       <div class="flex items-center gap-4 text-xs font-mono text-gray-500 justify-self-end">
         <div class="flex items-center gap-2 group mr-2">
           <button @click="player.toggleMute()" class="w-5 focus:outline-none text-right" title="Mute/Unmute">
@@ -130,10 +152,54 @@ watch(() => player.durationMs, (duration) => {
           </button>
           <input type="range" min="0" max="100" v-model.number="player.volume" class="w-16 cursor-pointer">
         </div>
-        <span>{{ formatTime(displayedPositionMs) }} / {{ formatTime(player.durationMs) }}</span>
         <span class="cursor-pointer transition-colors"
               :class="app.theme === 'dark' ? 'text-gray-400 hover:text-white' : 'text-gray-400 hover:text-black'">1x</span>
       </div>
     </div>
   </div>
 </template>
+
+<style scoped>
+.seek-slider {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.seek-slider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+}
+
+.seek-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #ffffff;
+  border: 1px solid rgba(24, 24, 27, 0.18);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.2);
+  margin-top: -3px;
+}
+
+.seek-slider::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.seek-slider::-moz-range-progress {
+  height: 4px;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.seek-slider::-moz-range-thumb {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #ffffff;
+  border: 1px solid rgba(24, 24, 27, 0.18);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.2);
+}
+</style>

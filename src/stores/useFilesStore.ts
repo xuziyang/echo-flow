@@ -50,10 +50,6 @@ export const useFilesStore = defineStore('files', () => {
       files.value.unshift(currentFile.value)
     }
 
-    // 触发播放
-    const player = usePlayerStore()
-    await player.startPlayback(result.path)
-
     // 自动触发 Whisper 转写
     const transcript = useTranscriptStore()
     transcript.startTranscribe(result.path)

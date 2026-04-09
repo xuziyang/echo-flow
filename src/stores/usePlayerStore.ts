@@ -1,4 +1,3 @@
-// src/stores/usePlayerStore.ts
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
@@ -16,6 +15,7 @@ const WAVEFORM_ZOOM_KEY = 'echo-flow.waveform-zoom'
 const MIN_WAVEFORM_ZOOM = 1
 const MAX_WAVEFORM_ZOOM = 40
 const WAVEFORM_ZOOM_STEP = 0.25
+const PLAYBACK_POLL_INTERVAL_MS = 200
 
 function clampWaveformZoom(value: number): number {
   return Math.min(MAX_WAVEFORM_ZOOM, Math.max(MIN_WAVEFORM_ZOOM, value))
@@ -44,24 +44,75 @@ export const usePlayerStore = defineStore('player', () => {
   const waveformSamples = ref<number[]>([])
   const waveformZoom = ref(loadWaveformZoom())
 
-  // 轮询播放位置（每 200ms）
+  // 后端状态校准时间点（用于前端连续外推）
+  let lastSyncPositionMs = 0
+  let lastSyncPerfMs = 0
+
+  // 低频轮询做状态校准
   let pollTimer: ReturnType<typeof setInterval> | null = null
+  // 高频 requestAnimationFrame 做平滑外推
+  let rafId: number | null = null
+
+  function nowMs() {
+    if (typeof window !== 'undefined' && typeof window.performance !== 'undefined') {
+      return window.performance.now()
+    }
+    return Date.now()
+  }
+
+  function calibratePosition(state: PlaybackState) {
+    lastSyncPositionMs = state.position_ms
+    lastSyncPerfMs = nowMs()
+    positionMs.value = state.position_ms
+    durationMs.value = state.duration_ms
+    isPlaying.value = state.is_playing
+  }
+
+  function startPositionExtrapolation() {
+    if (rafId !== null) return
+    if (typeof window === 'undefined') return
+
+    const tick = () => {
+      if (!isPlaying.value) {
+        stopPositionExtrapolation()
+        return
+      }
+      const elapsed = Math.max(0, nowMs() - lastSyncPerfMs)
+      const estimated = Math.round(lastSyncPositionMs + elapsed)
+      const clamped = durationMs.value > 0 ? Math.min(estimated, durationMs.value) : estimated
+      positionMs.value = clamped
+      rafId = window.requestAnimationFrame(tick)
+    }
+
+    rafId = window.requestAnimationFrame(tick)
+  }
+
+  function stopPositionExtrapolation() {
+    if (typeof window === 'undefined') return
+    if (rafId !== null) {
+      window.cancelAnimationFrame(rafId)
+      rafId = null
+    }
+  }
 
   function startPolling() {
     stopPolling()
     pollTimer = setInterval(async () => {
       try {
         const state = await invoke<PlaybackState>('get_playback_state')
-        isPlaying.value = state.is_playing
-        positionMs.value = state.position_ms
-        durationMs.value = state.duration_ms
+        calibratePosition(state)
+        if (state.is_playing) {
+          startPositionExtrapolation()
+        } else {
+          stopPositionExtrapolation()
+        }
         if (!state.is_playing && pollTimer) {
           stopPolling()
         }
       } catch {
         // ignore
       }
-    }, 200)
+    }, PLAYBACK_POLL_INTERVAL_MS)
   }
 
   function stopPolling() {
@@ -69,43 +120,53 @@ export const usePlayerStore = defineStore('player', () => {
       clearInterval(pollTimer)
       pollTimer = null
     }
+    stopPositionExtrapolation()
   }
 
   async function startPlayback(path: string) {
     const state = await invoke<PlaybackState>('start_playback', { path })
     console.log('[player] waveform_samples length:', state.waveform_samples?.length, 'first 3:', state.waveform_samples?.slice(0, 3))
     currentPath.value = state.path
-    isPlaying.value = state.is_playing
-    positionMs.value = state.position_ms
-    durationMs.value = state.duration_ms
+    calibratePosition(state)
     waveformSamples.value = state.waveform_samples
     console.log('[player] waveformSamples set to:', waveformSamples.value.length)
     startPolling()
+    if (state.is_playing) {
+      startPositionExtrapolation()
+    }
   }
 
   async function togglePlay() {
     if (!currentPath.value) return
     if (isPlaying.value) {
-      await invoke('pause_playback')
+      const state = await invoke<PlaybackState>('pause_playback')
+      calibratePosition(state)
+      stopPositionExtrapolation()
       stopPolling()
-      isPlaying.value = false
     } else {
-      await invoke('resume_playback')
-      isPlaying.value = true
+      const state = await invoke<PlaybackState>('resume_playback')
+      calibratePosition(state)
       startPolling()
+      if (state.is_playing) {
+        startPositionExtrapolation()
+      }
     }
   }
 
   async function stopPlayback() {
     stopPolling()
-    await invoke<PlaybackState>('stop_playback')
-    isPlaying.value = false
-    positionMs.value = 0
+    const state = await invoke<PlaybackState>('stop_playback')
+    calibratePosition(state)
   }
 
   async function seekTo(ms: number) {
     const state = await invoke<PlaybackState>('seek_playback', { positionMs: ms })
-    positionMs.value = state.position_ms
+    calibratePosition(state)
+    if (state.is_playing) {
+      startPositionExtrapolation()
+    } else {
+      stopPositionExtrapolation()
+    }
   }
 
   function toggleLoop() { isLooping.value = !isLooping.value }

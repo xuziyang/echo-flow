@@ -2,6 +2,7 @@
 use log::info;
 use nnsplit::NNSplit;
 use serde::{Deserialize, Serialize};
+use std::cmp::{max, min};
 use std::path::Path;
 use std::process::Command;
 use tauri::Emitter;
@@ -29,9 +30,174 @@ pub struct TranscriptSegment {
 #[derive(Debug)]
 struct WhisperSegment {
     pub text: String,
-    #[allow(dead_code)]
     pub start_ms: i64,
     pub end_ms: i64,
+}
+
+const MIN_SENTENCE_DURATION_MS: i64 = 80;
+
+fn normalize_whitespace(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn sanitize_for_match(text: &str) -> String {
+    let trimmed = normalize_whitespace(text);
+    trimmed
+        .trim_matches(|c: char| {
+            c.is_whitespace()
+                || matches!(c, '.' | ',' | ';' | ':' | '!' | '?' | '。' | '，' | '；' | '：' | '！' | '？')
+        })
+        .to_string()
+}
+
+fn find_char_subsequence(haystack: &[char], needle: &[char], from: usize) -> Option<(usize, usize)> {
+    if needle.is_empty() || haystack.is_empty() || from >= haystack.len() || needle.len() > haystack.len() {
+        return None;
+    }
+    let max_start = haystack.len().saturating_sub(needle.len());
+    for start in from..=max_start {
+        if haystack[start..start + needle.len()] == needle[..] {
+            return Some((start, start + needle.len()));
+        }
+    }
+    None
+}
+
+fn build_full_text_timeline(whisper_segments: &[WhisperSegment]) -> (Vec<char>, Vec<i64>) {
+    let mut chars = Vec::<char>::new();
+    let mut times = Vec::<i64>::new();
+    let mut has_prev = false;
+    let mut last_end_ms = 0_i64;
+
+    for seg in whisper_segments {
+        let text = normalize_whitespace(&seg.text);
+        if text.is_empty() {
+            continue;
+        }
+
+        let start_ms = max(0, seg.start_ms);
+        let end_ms = max(start_ms, seg.end_ms);
+
+        if has_prev {
+            chars.push(' ');
+            times.push(last_end_ms);
+        }
+
+        let segment_chars: Vec<char> = text.chars().collect();
+        if segment_chars.len() == 1 {
+            chars.push(segment_chars[0]);
+            times.push(start_ms);
+        } else {
+            let denom = (segment_chars.len() - 1) as i64;
+            for (idx, ch) in segment_chars.into_iter().enumerate() {
+                let t = start_ms + ((end_ms - start_ms) * idx as i64) / denom;
+                chars.push(ch);
+                times.push(t);
+            }
+        }
+
+        has_prev = true;
+        last_end_ms = end_ms;
+    }
+
+    (chars, times)
+}
+
+fn align_sentences_to_timeline(sentences: Vec<String>, full_chars: &[char], char_times: &[i64]) -> Vec<TranscriptSegment> {
+    if sentences.is_empty() || full_chars.is_empty() || char_times.is_empty() {
+        return Vec::new();
+    }
+
+    let mut cursor = 0_usize;
+    let mut aligned: Vec<Option<(i64, i64)>> = Vec::with_capacity(sentences.len());
+
+    for sentence in &sentences {
+        let normalized = normalize_whitespace(sentence);
+        let normalized_chars: Vec<char> = normalized.chars().collect();
+        let fallback_chars: Vec<char> = sanitize_for_match(sentence).chars().collect();
+
+        let found = find_char_subsequence(full_chars, &normalized_chars, cursor)
+            .or_else(|| find_char_subsequence(full_chars, &fallback_chars, cursor));
+
+        if let Some((start_idx, end_idx)) = found {
+            cursor = end_idx;
+            let start_ms = char_times.get(start_idx).copied().unwrap_or(0);
+            let end_ms = char_times
+                .get(end_idx.saturating_sub(1))
+                .copied()
+                .unwrap_or(start_ms);
+            aligned.push(Some((start_ms, end_ms)));
+        } else {
+            aligned.push(None);
+        }
+    }
+
+    let mut resolved = vec![(0_i64, MIN_SENTENCE_DURATION_MS); sentences.len()];
+    let timeline_start = *char_times.first().unwrap_or(&0);
+    let timeline_end = *char_times.last().unwrap_or(&timeline_start);
+
+    for idx in 0..sentences.len() {
+        if let Some((start_ms, end_ms)) = aligned[idx] {
+            resolved[idx] = (start_ms, end_ms);
+            continue;
+        }
+
+        let prev_end = if idx == 0 { timeline_start } else { resolved[idx - 1].1 };
+        let next_known_start = aligned
+            .iter()
+            .skip(idx + 1)
+            .find_map(|it| it.map(|(s, _)| s))
+            .unwrap_or(timeline_end);
+
+        let start_ms = prev_end;
+        let mut end_ms = start_ms + 160;
+
+        if next_known_start > start_ms {
+            let gap = next_known_start - start_ms;
+            let local_span = min(300, max(MIN_SENTENCE_DURATION_MS, gap / 2));
+            end_ms = start_ms + local_span;
+        }
+
+        resolved[idx] = (start_ms, end_ms);
+    }
+
+    let mut last_start = timeline_start;
+    let mut segments = Vec::with_capacity(sentences.len());
+
+    for (idx, sentence) in sentences.into_iter().enumerate() {
+        let (raw_start, raw_end) = resolved[idx];
+        let start_ms = max(raw_start, last_start);
+        let end_ms = max(raw_end, start_ms + MIN_SENTENCE_DURATION_MS);
+        last_start = start_ms;
+
+        segments.push(TranscriptSegment {
+            id: (idx + 1) as i64,
+            en: sentence,
+            zh: String::new(),
+            start_ms,
+            end_ms,
+        });
+    }
+
+    segments
+}
+
+fn build_transcript_segments_from_whisper(whisper_segments: &[WhisperSegment]) -> Vec<TranscriptSegment> {
+    let (full_chars, char_times) = build_full_text_timeline(whisper_segments);
+    if full_chars.is_empty() || char_times.is_empty() {
+        return Vec::new();
+    }
+
+    let full_text: String = full_chars.iter().collect();
+    let mut sentences = split_sentences(&full_text);
+    if sentences.is_empty() {
+        let normalized = normalize_whitespace(&full_text);
+        if !normalized.is_empty() {
+            sentences.push(normalized);
+        }
+    }
+
+    align_sentences_to_timeline(sentences, &full_chars, &char_times)
 }
 
 /// 运行 Whisper 转写（调用方提供模型路径）
@@ -104,9 +270,9 @@ fn run_whisper(
             continue;
         }
 
-        // Whisper 时间戳单位是厘秒（1/100秒）→ 毫秒
-        let start_ms = seg.start_timestamp() / 10;
-        let end_ms = seg.end_timestamp() / 10;
+        // Whisper 时间戳单位是 10ms（centisecond ticks）→ 毫秒
+        let start_ms = seg.start_timestamp() * 10;
+        let end_ms = seg.end_timestamp() * 10;
 
         let percent = ((i + 1) as f32 / n_segments as f32) * 100.0;
         progress_callback(percent, &txt);
@@ -204,32 +370,7 @@ pub fn transcribe_audio(
 
         match result {
             Ok(whisper_segments) => {
-                let full_text: String = whisper_segments.iter()
-                    .map(|s| s.text.as_str())
-                    .collect::<Vec<_>>()
-                    .join(" ");
-
-                let sentences = split_sentences(&full_text);
-                let total_duration = whisper_segments.last()
-                    .map(|s| s.end_ms)
-                    .unwrap_or(0);
-
-                let n = sentences.len().max(1) as i64;
-                let segments: Vec<TranscriptSegment> = sentences
-                    .into_iter()
-                    .enumerate()
-                    .map(|(idx, text)| {
-                        let start_ms = (idx as i64 * total_duration) / n;
-                        let end_ms = ((idx as i64 + 1) * total_duration) / n;
-                        TranscriptSegment {
-                            id: (idx + 1) as i64,
-                            en: text,
-                            zh: String::new(),
-                            start_ms,
-                            end_ms,
-                        }
-                    })
-                    .collect();
+                let segments = build_transcript_segments_from_whisper(&whisper_segments);
 
                 let _ = window_clone.emit("transcribe-done", &segments);
             }
@@ -240,4 +381,100 @@ pub fn transcribe_audio(
     });
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ws(text: &str, start_ms: i64, end_ms: i64) -> WhisperSegment {
+        WhisperSegment {
+            text: text.to_string(),
+            start_ms,
+            end_ms,
+        }
+    }
+
+    fn assert_monotonic(segments: &[TranscriptSegment]) {
+        let mut prev_start = i64::MIN;
+        for seg in segments {
+            assert!(seg.start_ms >= prev_start, "start_ms should be monotonic");
+            assert!(seg.end_ms >= seg.start_ms + MIN_SENTENCE_DURATION_MS, "minimum duration violated");
+            prev_start = seg.start_ms;
+        }
+    }
+
+    #[test]
+    fn timeline_short_sentences_are_monotonic() {
+        let whisper = vec![
+            ws("Go.", 0, 220),
+            ws("Now.", 240, 480),
+            ws("Run.", 500, 760),
+            ws("Stop.", 780, 1100),
+        ];
+        let sentences = vec!["Go".to_string(), "Now".to_string(), "Run".to_string(), "Stop".to_string()];
+        let (full_chars, char_times) = build_full_text_timeline(&whisper);
+        let segments = align_sentences_to_timeline(sentences, &full_chars, &char_times);
+
+        assert_eq!(segments.len(), 4);
+        assert_monotonic(&segments);
+        assert!(segments[0].start_ms <= 20);
+        assert!(segments[3].start_ms >= 700);
+    }
+
+    #[test]
+    fn timeline_repeated_phrases_match_in_order() {
+        let whisper = vec![
+            ws("hello there.", 0, 500),
+            ws("hello there.", 550, 1100),
+            ws("hello there.", 1150, 1700),
+        ];
+        let sentences = vec![
+            "hello there".to_string(),
+            "hello there".to_string(),
+            "hello there".to_string(),
+        ];
+        let (full_chars, char_times) = build_full_text_timeline(&whisper);
+        let segments = align_sentences_to_timeline(sentences, &full_chars, &char_times);
+
+        assert_eq!(segments.len(), 3);
+        assert_monotonic(&segments);
+        assert!(segments[1].start_ms > segments[0].start_ms);
+        assert!(segments[2].start_ms > segments[1].start_ms);
+    }
+
+    #[test]
+    fn timeline_handles_whitespace_and_punctuation() {
+        let whisper = vec![
+            ws("  We   are   ready!  ", 0, 600),
+            ws("Yes, we are.\n", 620, 1200),
+        ];
+        let sentences = vec!["We are ready".to_string(), "Yes, we are".to_string()];
+        let (full_chars, char_times) = build_full_text_timeline(&whisper);
+        let segments = align_sentences_to_timeline(sentences, &full_chars, &char_times);
+
+        assert_eq!(segments.len(), 2);
+        assert_monotonic(&segments);
+        assert!(segments[1].start_ms >= 620);
+    }
+
+    #[test]
+    fn timeline_local_fallback_keeps_continuity() {
+        let whisper = vec![
+            ws("alpha beta", 0, 500),
+            ws("gamma delta", 520, 1000),
+        ];
+        let sentences = vec![
+            "alpha beta".to_string(),
+            "not-found sentence".to_string(),
+            "gamma delta".to_string(),
+        ];
+        let (full_chars, char_times) = build_full_text_timeline(&whisper);
+        let segments = align_sentences_to_timeline(sentences, &full_chars, &char_times);
+
+        assert_eq!(segments.len(), 3);
+        assert_monotonic(&segments);
+        assert!(segments[1].start_ms >= segments[0].end_ms);
+        assert!(segments[2].start_ms >= segments[1].start_ms);
+    }
 }

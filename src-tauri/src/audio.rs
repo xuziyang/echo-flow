@@ -439,6 +439,8 @@ pub struct SubtitleEntry {
     pub id: i64,
     pub en: String,
     pub zh: String,
+    pub start_ms: Option<u64>,
+    pub end_ms: Option<u64>,
 }
 
 /// 加载 SRT 字幕文件
@@ -460,11 +462,18 @@ pub fn load_subtitle_file(path: String) -> Result<Vec<SubtitleEntry>, String> {
                 id: (idx + 1) as i64,
                 en,
                 zh,
+                start_ms: Some(srt_time_to_ms(&sub.start_time)),
+                end_ms: Some(srt_time_to_ms(&sub.end_time)),
             }
         })
         .collect();
 
     Ok(entries)
+}
+
+fn srt_time_to_ms(time: &Time) -> u64 {
+    ((time.hours as u64 * 3600 + time.minutes as u64 * 60 + time.seconds as u64) * 1000)
+        + time.milliseconds as u64
 }
 
 /// 将毫秒转换为 SRT Time
@@ -482,8 +491,10 @@ fn ms_to_srt_time(ms: u64) -> Time {
 pub fn save_subtitle_file(path: String, entries: Vec<SubtitleEntry>) -> Result<(), String> {
     let mut output = String::new();
     for (idx, entry) in entries.into_iter().enumerate() {
-        let start_ms = idx as u64 * 5000 + 1000;
-        let end_ms = idx as u64 * 5000 + 5000;
+        let fallback_start_ms = idx as u64 * 5000 + 1000;
+        let fallback_end_ms = idx as u64 * 5000 + 5000;
+        let start_ms = entry.start_ms.unwrap_or(fallback_start_ms);
+        let end_ms = entry.end_ms.unwrap_or(fallback_end_ms.max(start_ms + 500));
         let start = ms_to_srt_time(start_ms);
         let end = ms_to_srt_time(end_ms);
         let text = if entry.zh.is_empty() {

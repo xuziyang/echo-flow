@@ -19,6 +19,8 @@ export interface SubtitleEntry {
   id: number
   en: string
   zh: string
+  start_ms?: number
+  end_ms?: number
 }
 
 export interface TranscriptSegment {
@@ -111,6 +113,8 @@ export const useTranscriptStore = defineStore('transcript', () => {
       status: 'saved' as const,
       dirty: false,
       issues: [],
+      start_ms: e.start_ms,
+      end_ms: e.end_ms,
     }))
     isEditing.value = false
     editingIndex.value = null
@@ -123,6 +127,8 @@ export const useTranscriptStore = defineStore('transcript', () => {
       id: s.id,
       en: s.en,
       zh: s.zh,
+      start_ms: s.start_ms,
+      end_ms: s.end_ms,
     }))
     await invoke('save_subtitle_file', { path, entries })
   }

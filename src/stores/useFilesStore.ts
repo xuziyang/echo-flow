@@ -53,6 +53,17 @@ export const useFilesStore = defineStore('files', () => {
     // 自动触发 Whisper 转写
     const transcript = useTranscriptStore()
     transcript.startTranscribe(result.path)
+
+    // 加载音频到播放器（不播放）
+    const player = usePlayerStore()
+    const state = await invoke<{
+      path: string; is_playing: boolean; position_ms: number;
+      duration_ms: number; volume: number; waveform_samples: number[];
+    }>('load_audio', { path: selected })
+    player.currentPath = state.path
+    player.positionMs = state.position_ms
+    player.durationMs = state.duration_ms
+    player.waveformSamples = state.waveform_samples
   }
 
   return { files, currentFile, openFile, formatDuration }

@@ -82,6 +82,53 @@ impl AudioPlayer {
         })
     }
 
+    /// 仅加载音频（不播放），返回波形数据供前端显示
+    pub fn load(&mut self, path: &str) -> Result<PlaybackState, String> {
+        self.stop_internal();
+
+        let file = File::open(path).map_err(|e| format!("无法打开文件: {}", e))?;
+        let source = Decoder::new(BufReader::new(file))
+            .map_err(|e| format!("无法解码音频: {}", e))?;
+
+        let sample_rate = source.sample_rate();
+        let channels = source.channels() as u16;
+
+        let all_samples: Vec<f32> = source.convert_samples().collect();
+        let num_samples = all_samples.len();
+        let duration_ms = if sample_rate > 0 && channels > 0 {
+            (num_samples as u64 * 1000) / (sample_rate as u64 * channels as u64)
+        } else {
+            0
+        };
+
+        let step = if all_samples.is_empty() { 1 } else { (all_samples.len() - 1) / 200.max(1) };
+        let waveform: Vec<f32> = all_samples.iter().step_by(step.max(1)).copied().take(200).collect();
+
+        *self.samples.lock().unwrap() = all_samples;
+        *self.sample_rate.lock().unwrap() = sample_rate;
+        *self.channels.lock().unwrap() = channels;
+
+        info!(
+            "Loaded audio: {} samples, {} Hz, {} channels, {} ms",
+            num_samples, sample_rate, channels, duration_ms
+        );
+
+        self.current_path = path.to_string();
+        self.state = PlayerState::Paused {
+            position_ms: 0,
+            duration_ms,
+        };
+
+        Ok(PlaybackState {
+            path: path.to_string(),
+            is_playing: false,
+            position_ms: 0,
+            duration_ms,
+            volume: self.volume,
+            waveform_samples: waveform,
+        })
+    }
+
     /// 加载并开始播放
     pub fn start(&mut self, path: &str) -> Result<PlaybackState, String> {
         // 停止当前播放
@@ -367,6 +414,15 @@ pub fn open_audio_file(path: String) -> Result<AudioFileMetadata, String> {
         duration_ms,
         sample_rate,
         channels,
+    })
+}
+
+/// 加载音频（不播放）
+#[tauri::command]
+pub fn load_audio(path: String) -> Result<PlaybackState, String> {
+    PLAYER.with(|p| {
+        let mut player = p.borrow_mut();
+        player.load(&path)
     })
 }
 

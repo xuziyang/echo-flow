@@ -22,6 +22,7 @@ pub fn run() {
             audio::open_audio_file,
             audio::load_subtitle_file,
             audio::save_subtitle_file,
+            audio::load_audio,
             audio::start_playback,
             audio::pause_playback,
             audio::resume_playback,

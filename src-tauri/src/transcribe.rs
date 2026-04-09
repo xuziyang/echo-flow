@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::process::Command;
 use tauri::Emitter;
-use whisper_rs::{FullParams, SamplingStrategy, WhisperContext};
+use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
 /// 转写进度事件
 #[derive(Debug, Clone, Serialize)]
@@ -41,8 +41,8 @@ fn run_whisper(
     progress_callback: impl Fn(f32, &str),
 ) -> Result<Vec<WhisperSegment>, String> {
     let ctx = WhisperContext::new_with_params(
-        Path::new(model_path),
-        Default::default(),
+        model_path,
+        WhisperContextParameters::default(),
     ).map_err(|e| format!("无法加载 Whisper 模型: {}", e))?;
 
     let mut state = ctx.create_state()
@@ -50,6 +50,7 @@ fn run_whisper(
 
     let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 0 });
     params.set_language(Some("en"));
+    params.set_print_progress(false);
 
     // 如果不是 WAV，先用 ffmpeg 转换
     let audio_file = Path::new(audio_path);
@@ -68,35 +69,49 @@ fn run_whisper(
 
     let mut reader = hound::WavReader::open(&wav_path)
         .map_err(|e| format!("无法读取 WAV 文件: {}", e))?;
-    let sample_rate = reader.spec().sample_rate;
+    let spec = reader.spec();
     let samples: Vec<f32> = reader.samples::<i16>()
         .filter_map(|s| s.ok())
         .map(|s| s as f32 / 32768.0)
         .collect();
 
-    info!("Whisper: {} samples at {} Hz", samples.len(), sample_rate);
+    // 降混音为单声道（如需要）
+    let audio: Vec<f32> = if spec.channels == 2 {
+        samples.chunks(2).map(|chunk| {
+            let l = chunk.get(0).copied().unwrap_or(0.0);
+            let r = chunk.get(1).copied().unwrap_or(0.0);
+            (l + r) / 2.0
+        }).collect()
+    } else {
+        samples
+    };
 
-    state.full(params, &samples)
+    info!("Whisper: {} samples at {} Hz, {} channels", audio.len(), spec.sample_rate, spec.channels);
+
+    state.full(params, &audio)
         .map_err(|e| format!("Whisper 推理失败: {}", e))?;
 
     let n_segments = state.full_n_segments() as usize;
     let mut segments = Vec::new();
 
     for i in 0..n_segments {
-        if let Some(seg) = state.get_segment(i as i32) {
-            let txt = seg.to_str()
-                .map_err(|e| format!("无法读取分段文本: {}", e))?
-                .trim()
-                .to_string();
-            // Whisper 时间单位：厘秒（1/100秒）→ 毫秒
-            let start_ms = seg.start_timestamp() * 10;
-            let end_ms = seg.end_timestamp() * 10;
+        let Some(seg) = state.get_segment(i as i32) else { continue };
+        let txt = seg.to_str()
+            .map(|s| s.trim().to_string())
+            .unwrap_or_default();
 
-            let percent = ((i + 1) as f32 / n_segments as f32) * 100.0;
-            progress_callback(percent, &txt);
-
-            segments.push(WhisperSegment { text: txt, start_ms, end_ms });
+        if txt.is_empty() {
+            continue;
         }
+
+        // Whisper 时间戳单位是厘秒（1/100秒）→ 毫秒
+        let start_ms = seg.start_timestamp() / 10;
+        let end_ms = seg.end_timestamp() / 10;
+
+        let percent = ((i + 1) as f32 / n_segments as f32) * 100.0;
+        progress_callback(percent, &txt);
+
+        segments.push(WhisperSegment { text: txt, start_ms, end_ms });
     }
 
     Ok(segments)
@@ -151,9 +166,12 @@ pub fn transcribe_audio(
     let model = model_path.unwrap_or_else(|| {
         let home = std::env::var("HOME").unwrap_or_default();
         [
+            format!("{}/.cache/whisper/ggml-small.en.bin", home),
             format!("{}/.cache/whisper/ggml-base.en.bin", home),
             format!("{}/.cache/whisper/ggml-base.bin", home),
+            "./models/ggml-small.en.bin".to_string(),
             "./models/ggml-base.en.bin".to_string(),
+            "./ggml-small.en.bin".to_string(),
             "./ggml-base.en.bin".to_string(),
         ]
         .into_iter()

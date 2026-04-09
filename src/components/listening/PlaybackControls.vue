@@ -26,6 +26,11 @@ const seekTrackStyle = computed(() => ({
     ? `linear-gradient(to right, #f4f4f5 ${seekPercent.value}%, #3f3f46 ${seekPercent.value}%)`
     : `linear-gradient(to right, #18181b ${seekPercent.value}%, #d4d4d8 ${seekPercent.value}%)`
 }))
+const volumeTrackStyle = computed(() => ({
+  background: app.theme === 'dark'
+    ? `linear-gradient(to right, #e4e4e7 ${player.volume}%, #3f3f46 ${player.volume}%)`
+    : `linear-gradient(to right, #18181b ${player.volume}%, #d4d4d8 ${player.volume}%)`
+}))
 
 function clampSeekMs(ms: number) {
   const max = seekBarMax.value
@@ -145,15 +150,36 @@ watch(() => player.durationMs, (duration) => {
       </div>
 
     <!-- Right: Volume -->
-      <div class="flex items-center gap-4 text-xs font-mono text-gray-500 justify-self-end">
-        <div class="flex items-center gap-2 group mr-2">
-          <button @click="player.toggleMute()" class="w-5 focus:outline-none text-right" title="Mute/Unmute">
-            <Icon :name="volumeIcon()" class="transition-colors text-sm" :class="app.theme === 'dark' ? 'text-gray-400 group-hover:text-white' : 'text-gray-400 group-hover:text-black'" />
+      <div class="flex items-center gap-3 justify-self-end">
+        <div
+          class="flex items-center gap-2 rounded-full px-2.5 py-1.5 border transition-colors"
+          :class="app.theme === 'dark' ? 'border-dark-border bg-dark-highlight/55' : 'border-light-border bg-light-card/65'"
+        >
+          <button
+            @click="player.toggleMute()"
+            class="w-5 h-5 focus:outline-none flex items-center justify-center rounded-full transition-colors"
+            :class="app.theme === 'dark' ? 'text-gray-300 hover:text-white' : 'text-gray-500 hover:text-black'"
+            title="Mute/Unmute"
+          >
+            <Icon :name="volumeIcon()" class="text-sm" />
           </button>
-          <input type="range" min="0" max="100" v-model.number="player.volume" class="w-16 cursor-pointer">
+          <input
+            type="range"
+            min="0"
+            max="100"
+            v-model.number="player.volume"
+            class="volume-slider w-24 h-1 cursor-pointer"
+            :style="volumeTrackStyle"
+          >
+          <span
+            class="text-[11px] font-mono tabular-nums min-w-[30px] text-right"
+            :class="app.theme === 'dark' ? 'text-gray-400' : 'text-gray-500'"
+          >
+            {{ player.volume }}%
+          </span>
         </div>
         <span class="cursor-pointer transition-colors"
-              :class="app.theme === 'dark' ? 'text-gray-400 hover:text-white' : 'text-gray-400 hover:text-black'">1x</span>
+              :class="app.theme === 'dark' ? 'text-gray-400 hover:text-white' : 'text-gray-500 hover:text-black'">1x</span>
       </div>
     </div>
   </div>
@@ -201,5 +227,49 @@ watch(() => player.durationMs, (duration) => {
   background: #ffffff;
   border: 1px solid rgba(24, 24, 27, 0.18);
   box-shadow: 0 1px 6px rgba(0, 0, 0, 0.2);
+}
+
+.volume-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  border-radius: 999px;
+}
+
+.volume-slider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+}
+
+.volume-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: #ffffff;
+  border: 1px solid rgba(24, 24, 27, 0.2);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.22);
+  margin-top: -2.5px;
+}
+
+.volume-slider::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.volume-slider::-moz-range-progress {
+  height: 4px;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.volume-slider::-moz-range-thumb {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: #ffffff;
+  border: 1px solid rgba(24, 24, 27, 0.2);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.22);
 }
 </style>

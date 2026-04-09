@@ -27,9 +27,9 @@ const seekTrackStyle = computed(() => ({
     : `linear-gradient(to right, #18181b ${seekPercent.value}%, #d4d4d8 ${seekPercent.value}%)`
 }))
 const volumeTrackStyle = computed(() => ({
-  background: app.theme === 'dark'
-    ? `linear-gradient(to right, #e4e4e7 ${player.volume}%, #3f3f46 ${player.volume}%)`
-    : `linear-gradient(to right, #18181b ${player.volume}%, #d4d4d8 ${player.volume}%)`
+  '--volume-track-bg': app.theme === 'dark'
+    ? `linear-gradient(to right, #d4d4d8 0%, #d4d4d8 ${player.volume}%, #27272a ${player.volume}%, #27272a 100%)`
+    : `linear-gradient(to right, #18181b 0%, #18181b ${player.volume}%, #d4d4d8 ${player.volume}%, #d4d4d8 100%)`
 }))
 
 function clampSeekMs(ms: number) {
@@ -152,8 +152,7 @@ watch(() => player.durationMs, (duration) => {
     <!-- Right: Volume -->
       <div class="flex items-center gap-3 justify-self-end">
         <div
-          class="flex items-center gap-2 rounded-full px-2.5 py-1.5 border transition-colors"
-          :class="app.theme === 'dark' ? 'border-dark-border bg-dark-highlight/55' : 'border-light-border bg-light-card/65'"
+          class="relative flex h-5 items-center justify-center gap-2 group"
         >
           <button
             @click="player.toggleMute()"
@@ -163,16 +162,20 @@ watch(() => player.durationMs, (duration) => {
           >
             <Icon :name="volumeIcon()" class="text-sm" />
           </button>
-          <input
-            type="range"
-            min="0"
-            max="100"
-            v-model.number="player.volume"
-            class="volume-slider w-24 h-1 cursor-pointer"
-            :style="volumeTrackStyle"
+          <div
+            class="flex items-center h-5 overflow-hidden w-0 opacity-0 pointer-events-none transition-all duration-200 group-hover:w-24 group-hover:opacity-100 group-hover:pointer-events-auto"
           >
+            <input
+              type="range"
+              min="0"
+              max="100"
+              v-model.number="player.volume"
+              class="volume-slider w-full h-5 cursor-pointer"
+              :style="volumeTrackStyle"
+            >
+          </div>
           <span
-            class="text-[11px] font-mono tabular-nums min-w-[30px] text-right"
+            class="overflow-hidden w-0 opacity-0 pointer-events-none transition-all duration-200 group-hover:w-[30px] group-hover:opacity-100 group-hover:pointer-events-auto text-[11px] font-mono tabular-nums leading-none text-right"
             :class="app.theme === 'dark' ? 'text-gray-400' : 'text-gray-500'"
           >
             {{ player.volume }}%
@@ -232,24 +235,32 @@ watch(() => player.durationMs, (duration) => {
 .volume-slider {
   -webkit-appearance: none;
   appearance: none;
+  display: block;
+  height: 20px;
+  padding: 0;
+  background: transparent;
+  border: 0;
   border-radius: 999px;
 }
 
 .volume-slider::-webkit-slider-runnable-track {
   height: 4px;
   border-radius: 999px;
+  background: var(--volume-track-bg);
 }
 
 .volume-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 9px;
-  height: 9px;
+  width: 0;
+  height: 0;
   border-radius: 999px;
-  background: #ffffff;
-  border: 1px solid rgba(24, 24, 27, 0.2);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.22);
-  margin-top: -2.5px;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  margin-top: 0;
+  opacity: 0;
+  transition: all 0.16s ease;
 }
 
 .volume-slider::-moz-range-track {
@@ -265,11 +276,34 @@ watch(() => player.durationMs, (duration) => {
 }
 
 .volume-slider::-moz-range-thumb {
+  width: 0;
+  height: 0;
+  border-radius: 999px;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  opacity: 0;
+  transition: all 0.16s ease;
+}
+
+.group:hover .volume-slider::-webkit-slider-thumb,
+.volume-slider:focus-visible::-webkit-slider-thumb {
   width: 9px;
   height: 9px;
-  border-radius: 999px;
   background: #ffffff;
   border: 1px solid rgba(24, 24, 27, 0.2);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.22);
+  margin-top: -2px;
+  opacity: 1;
+}
+
+.group:hover .volume-slider::-moz-range-thumb,
+.volume-slider:focus-visible::-moz-range-thumb {
+  width: 9px;
+  height: 9px;
+  background: #ffffff;
+  border: 1px solid rgba(24, 24, 27, 0.2);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.22);
+  opacity: 1;
 }
 </style>

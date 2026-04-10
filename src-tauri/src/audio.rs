@@ -211,35 +211,44 @@ impl AudioPlayer {
         self.build_state()
     }
 
-    pub fn resume(&mut self) -> PlaybackState {
+    pub fn resume(&mut self) -> Result<PlaybackState, String> {
         if let PlayerState::Paused {
             position_ms,
             duration_ms,
         } = &self.state
         {
+            if self.current_path.is_empty() {
+                return Err("没有可恢复的音频文件".to_string());
+            }
+
             // rodio Sink 不支持 seek，先停止当前 sink
             if let Some(sink) = self.sink.take() {
                 sink.stop();
             }
+
             // 重新打开文件并 seek 到目标位置
-            if let Ok(file) = File::open(&self.current_path) {
-                if let Ok(mut source) = Decoder::new(BufReader::new(file)) {
-                    if source.try_seek(std::time::Duration::from_millis(*position_ms)).is_ok() {
-                        if let Ok(sink) = Sink::try_new(&self.stream_handle) {
-                            sink.set_volume(self.volume);
-                            sink.append(source);
-                            self.sink = Some(sink);
-                        }
-                    }
-                }
-            }
+            let file = File::open(&self.current_path)
+                .map_err(|e| format!("无法打开音频文件: {}", e))?;
+            let mut source = Decoder::new(BufReader::new(file))
+                .map_err(|e| format!("无法解码音频: {}", e))?;
+            source
+                .try_seek(std::time::Duration::from_millis(*position_ms))
+                .map_err(|e| format!("无法恢复播放位置: {}", e))?;
+
+            let sink = Sink::try_new(&self.stream_handle)
+                .map_err(|e| format!("无法创建音频输出: {}", e))?;
+            sink.set_volume(self.volume);
+            sink.append(source);
+            self.sink = Some(sink);
+
             self.state = PlayerState::Playing {
                 start_instant: Instant::now(),
                 offset_ms: *position_ms,
                 duration_ms: *duration_ms,
             };
         }
-        self.build_state()
+
+        Ok(self.build_state())
     }
 
     pub fn stop(&mut self) -> PlaybackState {
@@ -254,35 +263,43 @@ impl AudioPlayer {
         }
     }
 
-    pub fn seek(&mut self, position_ms: u64) -> PlaybackState {
+    pub fn seek(&mut self, position_ms: u64) -> Result<PlaybackState, String> {
         let duration_ms = match &self.state {
             PlayerState::Playing { duration_ms, .. } => *duration_ms,
             PlayerState::Paused { duration_ms, .. } => *duration_ms,
-            _ => 0,
+            _ => {
+                return Err("没有已加载的音频，无法跳转".to_string());
+            }
         };
+
+        if self.current_path.is_empty() {
+            return Err("没有已加载的音频，无法跳转".to_string());
+        }
 
         if let Some(sink) = self.sink.take() {
             sink.stop();
         }
 
-        if let Ok(file) = File::open(&self.current_path) {
-            if let Ok(mut source) = Decoder::new(BufReader::new(file)) {
-                if source.try_seek(std::time::Duration::from_millis(position_ms)).is_ok() {
-                    if let Ok(sink) = Sink::try_new(&self.stream_handle) {
-                        sink.set_volume(self.volume);
-                        sink.append(source);
-                        self.sink = Some(sink);
-                    }
-                }
-            }
-        }
+        let file = File::open(&self.current_path)
+            .map_err(|e| format!("无法打开音频文件: {}", e))?;
+        let mut source = Decoder::new(BufReader::new(file))
+            .map_err(|e| format!("无法解码音频: {}", e))?;
+        source
+            .try_seek(std::time::Duration::from_millis(position_ms))
+            .map_err(|e| format!("无法跳转到指定位置: {}", e))?;
+
+        let sink = Sink::try_new(&self.stream_handle)
+            .map_err(|e| format!("无法创建音频输出: {}", e))?;
+        sink.set_volume(self.volume);
+        sink.append(source);
+        self.sink = Some(sink);
 
         self.state = PlayerState::Playing {
             start_instant: Instant::now(),
             offset_ms: position_ms,
             duration_ms,
         };
-        self.build_state()
+        Ok(self.build_state())
     }
 
     pub fn set_volume(&mut self, volume: f32) -> PlaybackState {
@@ -443,7 +460,7 @@ pub fn pause_playback() -> PlaybackState {
 
 /// 继续播放
 #[tauri::command]
-pub fn resume_playback() -> PlaybackState {
+pub fn resume_playback() -> Result<PlaybackState, String> {
     PLAYER.with(|p| p.borrow_mut().resume())
 }
 
@@ -455,7 +472,7 @@ pub fn stop_playback() -> PlaybackState {
 
 /// 跳转播放位置
 #[tauri::command]
-pub fn seek_playback(position_ms: u64) -> PlaybackState {
+pub fn seek_playback(position_ms: u64) -> Result<PlaybackState, String> {
     PLAYER.with(|p| p.borrow_mut().seek(position_ms))
 }
 

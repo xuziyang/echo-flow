@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
 import { useAppStore } from './stores/useAppStore'
-import { useTranscriptStore } from './stores/useTranscriptStore'
+import { usePlaybackSync } from './composables/usePlaybackSync'
+import { useTranscribeEvents } from './composables/useTranscribeEvents'
 import TitleBar from './components/layout/TitleBar.vue'
 import AppSidebar from './components/layout/AppSidebar.vue'
 import SubtitleToast from './components/layout/SubtitleToast.vue'
@@ -10,11 +10,8 @@ import ShadowingView from './components/shadowing/ShadowingView.vue'
 import SettingsView from './views/SettingsView.vue'
 
 const app = useAppStore()
-const transcript = useTranscriptStore()
-
-onMounted(() => {
-  transcript.initTranscribeListeners()
-})
+usePlaybackSync()
+useTranscribeEvents()
 </script>
 
 <template>

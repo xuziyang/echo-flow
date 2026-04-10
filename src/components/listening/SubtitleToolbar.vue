@@ -16,7 +16,10 @@ const transcript = useTranscriptStore()
               class="transition-colors text-[11px] font-bold border px-2.5 py-1 rounded-md flex items-center gap-1.5"
               :class="transcript.isEditing
                  ? (app.theme === 'dark' ? 'bg-white text-black border-white' : 'bg-black text-white border-black')
-                 : (app.theme === 'dark' ? 'text-gray-300 border-gray-700 hover:border-gray-500 hover:text-white' : 'text-slate-600 border-gray-300 hover:border-gray-400 hover:text-black')">
+                 : (transcript.displaySentences.length === 0
+                    ? (app.theme === 'dark' ? 'text-gray-600 border-gray-800 cursor-not-allowed' : 'text-gray-300 border-gray-200 cursor-not-allowed')
+                    : (app.theme === 'dark' ? 'text-gray-300 border-gray-700 hover:border-gray-500 hover:text-white' : 'text-slate-600 border-gray-300 hover:border-gray-400 hover:text-black'))"
+              :disabled="!transcript.isEditing && transcript.displaySentences.length === 0">
         <Icon :name="transcript.isEditing ? 'xmark' : 'pen-to-square'" />
         <span>{{ transcript.isEditing ? '退出编辑' : '编辑字幕' }}</span>
       </button>

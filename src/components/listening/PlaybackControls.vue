@@ -51,12 +51,6 @@ function volumeIcon() {
   return 'volume-high'
 }
 
-function onSeekPointerDown() {
-  if (seekBarMax.value <= 0) return
-  isSeeking.value = true
-  seekDraftMs.value = clampSeekMs(player.positionMs)
-}
-
 function onSeekInput(event: Event) {
   if (seekBarMax.value <= 0) return
   const target = event.target as HTMLInputElement
@@ -65,6 +59,13 @@ function onSeekInput(event: Event) {
   seekDraftMs.value = clampSeekMs(parsed)
   isSeeking.value = true
   seekDirty.value = true
+}
+
+function onVolumeInput(event: Event) {
+  const target = event.target as HTMLInputElement
+  const parsed = Number.parseInt(target.value, 10)
+  if (!Number.isFinite(parsed)) return
+  void player.setVolume(Math.max(0, Math.min(parsed, 100)))
 }
 
 async function commitSeek() {
@@ -104,10 +105,8 @@ watch(() => player.durationMs, (duration) => {
         :value="displayedPositionMs"
         :disabled="seekBarMax <= 0"
         class="seek-slider w-full h-1 rounded-full cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
-        @pointerdown="onSeekPointerDown"
         @input="onSeekInput"
         @change="commitSeek"
-        @pointerup="commitSeek"
         :style="seekTrackStyle"
       />
 
@@ -169,9 +168,10 @@ watch(() => player.durationMs, (duration) => {
               type="range"
               min="0"
               max="100"
-              v-model.number="player.volume"
+              :value="player.volume"
               class="volume-slider w-full h-5 cursor-pointer"
               :style="volumeTrackStyle"
+              @input="onVolumeInput"
             >
           </div>
           <span

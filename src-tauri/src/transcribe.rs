@@ -5,15 +5,33 @@ use serde::{Deserialize, Serialize};
 use std::cmp::{max, min};
 use std::path::Path;
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::Emitter;
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
-/// 转写进度事件
+static LAST_TRANSCRIBE_JOB_ID: AtomicU64 = AtomicU64::new(0);
+
 #[derive(Debug, Clone, Serialize)]
-pub struct TranscribeProgress {
+pub struct TranscribeProgressEvent {
+    pub job_id: u64,
+    pub audio_path: String,
     pub percent: f32,
     pub sentence: String,
     pub done: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TranscribeDoneEvent {
+    pub job_id: u64,
+    pub audio_path: String,
+    pub segments: Vec<TranscriptSegment>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TranscribeErrorEvent {
+    pub job_id: u64,
+    pub audio_path: String,
+    pub error: String,
 }
 
 /// 转写后的字幕条目
@@ -325,7 +343,8 @@ pub fn transcribe_audio(
     window: tauri::Window,
     audio_path: String,
     model_path: Option<String>,
-) -> Result<(), String> {
+    job_id: Option<u64>,
+) -> Result<u64, String> {
     // 查找 Whisper 模型
     let model = model_path.unwrap_or_else(|| {
         let home = std::env::var("HOME").unwrap_or_default();
@@ -349,16 +368,21 @@ pub fn transcribe_audio(
 
     info!("Starting transcription: audio={}, model={}", audio_path, model);
 
+    let resolved_job_id =
+        job_id.unwrap_or_else(|| LAST_TRANSCRIBE_JOB_ID.fetch_add(1, Ordering::Relaxed) + 1);
     let audio_path_clone = audio_path.clone();
     let model_clone = model.clone();
     let window_clone = window.clone();
 
     std::thread::spawn(move || {
+        let progress_audio_path = audio_path_clone.clone();
         let result = run_whisper(
             &audio_path_clone,
             &model_clone,
             |percent, sentence| {
-                let _ = window_clone.emit("transcribe-progress", TranscribeProgress {
+                let _ = window_clone.emit("transcribe-progress", TranscribeProgressEvent {
+                    job_id: resolved_job_id,
+                    audio_path: progress_audio_path.clone(),
                     percent,
                     sentence: sentence.to_string(),
                     done: false,
@@ -370,15 +394,23 @@ pub fn transcribe_audio(
             Ok(whisper_segments) => {
                 let segments = build_transcript_segments_from_whisper(&whisper_segments);
 
-                let _ = window_clone.emit("transcribe-done", &segments);
+                let _ = window_clone.emit("transcribe-done", TranscribeDoneEvent {
+                    job_id: resolved_job_id,
+                    audio_path: audio_path_clone.clone(),
+                    segments,
+                });
             }
             Err(e) => {
-                let _ = window_clone.emit("transcribe-error", e);
+                let _ = window_clone.emit("transcribe-error", TranscribeErrorEvent {
+                    job_id: resolved_job_id,
+                    audio_path: audio_path_clone.clone(),
+                    error: e,
+                });
             }
         }
     });
 
-    Ok(())
+    Ok(resolved_job_id)
 }
 
 #[cfg(test)]

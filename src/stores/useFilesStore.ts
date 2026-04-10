@@ -5,6 +5,7 @@ import { open } from '@tauri-apps/plugin-dialog'
 import { invoke } from '@tauri-apps/api/core'
 import { useTranscriptStore } from './useTranscriptStore'
 import { usePlayerStore } from './usePlayerStore'
+import { useAppStore } from './useAppStore'
 
 export interface FileItem {
   id: number
@@ -22,51 +23,51 @@ function formatDuration(ms: number): string {
 }
 
 export const useFilesStore = defineStore('files', () => {
+  const app = useAppStore()
   const files = ref<FileItem[]>([])
   const currentFile = ref<FileItem | null>(null)
 
   async function openFile(): Promise<void> {
-    const selected = await open({
-      multiple: false,
-      filters: [
-        { name: '音频文件', extensions: ['mp3', 'wav', 'flac', 'ogg', 'aac', 'm4a'] },
-      ],
-    })
-    if (!selected) return
+    try {
+      const selected = await open({
+        multiple: false,
+        filters: [
+          { name: '音频文件', extensions: ['mp3', 'wav', 'flac', 'ogg', 'aac', 'm4a'] },
+        ],
+      })
+      if (!selected) return
 
-    const result = await invoke<{
-      id: number; title: string; path: string; duration_ms: number
-    }>('open_audio_file', { path: selected })
+      const result = await invoke<{
+        id: number; title: string; path: string; duration_ms: number
+      }>('open_audio_file', { path: selected })
 
-    currentFile.value = {
-      id: result.id,
-      title: result.title,
-      path: result.path,
-      date: '刚刚',
-      duration_ms: result.duration_ms,
+      currentFile.value = {
+        id: result.id,
+        title: result.title,
+        path: result.path,
+        date: '刚刚',
+        duration_ms: result.duration_ms,
+      }
+
+      if (!files.value.find(f => f.path === result.path)) {
+        files.value.unshift(currentFile.value)
+      }
+
+      // 自动触发 Whisper 转写
+      const transcript = useTranscriptStore()
+      void transcript.startTranscribe(result.path)
+
+      // 加载音频到播放器（不播放）
+      const player = usePlayerStore()
+      const state = await invoke<{
+        path: string; is_playing: boolean; position_ms: number;
+        duration_ms: number; volume: number; waveform_samples: number[];
+      }>('load_audio', { path: selected })
+      player.applyPlaybackState(state)
+    } catch (error) {
+      app.showSubtitleToast(typeof error === 'string' ? error : String(error), 'error')
     }
-
-    if (!files.value.find(f => f.path === result.path)) {
-      files.value.unshift(currentFile.value)
-    }
-
-    // 自动触发 Whisper 转写
-    const transcript = useTranscriptStore()
-    transcript.startTranscribe(result.path)
-
-    // 加载音频到播放器（不播放）
-    const player = usePlayerStore()
-    const state = await invoke<{
-      path: string; is_playing: boolean; position_ms: number;
-      duration_ms: number; volume: number; waveform_samples: number[];
-    }>('load_audio', { path: selected })
-    player.currentPath = state.path
-    player.positionMs = state.position_ms
-    player.durationMs = state.duration_ms
-    player.waveformSamples = state.waveform_samples
   }
 
   return { files, currentFile, openFile, formatDuration }
 })
-
-

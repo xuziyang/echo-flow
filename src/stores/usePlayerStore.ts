@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
+import { useAppStore } from './useAppStore'
 
 export interface PlaybackState {
   path: string
@@ -15,7 +16,6 @@ const WAVEFORM_ZOOM_KEY = 'echo-flow.waveform-zoom'
 const MIN_WAVEFORM_ZOOM = 1
 const MAX_WAVEFORM_ZOOM = 40
 const WAVEFORM_ZOOM_STEP = 0.25
-const PLAYBACK_POLL_INTERVAL_MS = 200
 
 function clampWaveformZoom(value: number): number {
   return Math.min(MAX_WAVEFORM_ZOOM, Math.max(MIN_WAVEFORM_ZOOM, value))
@@ -31,6 +31,7 @@ function loadWaveformZoom(): number {
 }
 
 export const usePlayerStore = defineStore('player', () => {
+  const app = useAppStore()
   const isPlaying = ref(false)
   const isLooping = ref(false)
   const currentIndex = ref(0)
@@ -43,128 +44,66 @@ export const usePlayerStore = defineStore('player', () => {
   const waveformSamples = ref<number[]>([])
   const waveformZoom = ref(loadWaveformZoom())
 
-  // 后端状态校准时间点（用于前端连续外推）
-  let lastSyncPositionMs = 0
-  let lastSyncPerfMs = 0
-
-  // 低频轮询做状态校准
-  let pollTimer: ReturnType<typeof setInterval> | null = null
-  // 高频 requestAnimationFrame 做平滑外推
-  let rafId: number | null = null
-
-  function nowMs() {
-    if (typeof window !== 'undefined' && typeof window.performance !== 'undefined') {
-      return window.performance.now()
-    }
-    return Date.now()
+  function notifyPlaybackError(error: unknown) {
+    const message = typeof error === 'string' ? error : String(error)
+    app.showSubtitleToast(message, 'error')
   }
 
-  function calibratePosition(state: PlaybackState) {
-    lastSyncPositionMs = state.position_ms
-    lastSyncPerfMs = nowMs()
+  function applyPlaybackState(state: PlaybackState, options?: { includeWaveform?: boolean }) {
+    currentPath.value = state.path
     positionMs.value = state.position_ms
     durationMs.value = state.duration_ms
     isPlaying.value = state.is_playing
-  }
 
-  function startPositionExtrapolation() {
-    if (rafId !== null) return
-    if (typeof window === 'undefined') return
-
-    const tick = () => {
-      if (!isPlaying.value) {
-        stopPositionExtrapolation()
-        return
-      }
-      const elapsed = Math.max(0, nowMs() - lastSyncPerfMs)
-      const estimated = Math.round(lastSyncPositionMs + elapsed)
-      const clamped = durationMs.value > 0 ? Math.min(estimated, durationMs.value) : estimated
-      positionMs.value = clamped
-      rafId = window.requestAnimationFrame(tick)
-    }
-
-    rafId = window.requestAnimationFrame(tick)
-  }
-
-  function stopPositionExtrapolation() {
-    if (typeof window === 'undefined') return
-    if (rafId !== null) {
-      window.cancelAnimationFrame(rafId)
-      rafId = null
+    if (options?.includeWaveform !== false) {
+      waveformSamples.value = state.waveform_samples
     }
   }
 
-  function startPolling() {
-    stopPolling()
-    pollTimer = setInterval(async () => {
-      try {
-        const state = await invoke<PlaybackState>('get_playback_state')
-        calibratePosition(state)
-        if (state.is_playing) {
-          startPositionExtrapolation()
-        } else {
-          stopPositionExtrapolation()
-        }
-        if (!state.is_playing && pollTimer) {
-          stopPolling()
-        }
-      } catch {
-        // ignore
-      }
-    }, PLAYBACK_POLL_INTERVAL_MS)
-  }
-
-  function stopPolling() {
-    if (pollTimer) {
-      clearInterval(pollTimer)
-      pollTimer = null
-    }
-    stopPositionExtrapolation()
+  function setEstimatedPosition(ms: number) {
+    const clamped = durationMs.value > 0 ? Math.min(Math.max(0, ms), durationMs.value) : Math.max(0, ms)
+    positionMs.value = clamped
   }
 
   async function startPlayback(path: string) {
-    const state = await invoke<PlaybackState>('start_playback', { path })
-    console.log('[player] waveform_samples length:', state.waveform_samples?.length, 'first 3:', state.waveform_samples?.slice(0, 3))
-    currentPath.value = state.path
-    calibratePosition(state)
-    waveformSamples.value = state.waveform_samples
-    console.log('[player] waveformSamples set to:', waveformSamples.value.length)
-    startPolling()
-    if (state.is_playing) {
-      startPositionExtrapolation()
+    try {
+      const state = await invoke<PlaybackState>('start_playback', { path })
+      applyPlaybackState(state)
+    } catch (error) {
+      notifyPlaybackError(error)
     }
   }
 
   async function togglePlay() {
     if (!currentPath.value) return
-    if (isPlaying.value) {
-      const state = await invoke<PlaybackState>('pause_playback')
-      calibratePosition(state)
-      stopPositionExtrapolation()
-      stopPolling()
-    } else {
-      const state = await invoke<PlaybackState>('resume_playback')
-      calibratePosition(state)
-      startPolling()
-      if (state.is_playing) {
-        startPositionExtrapolation()
+    try {
+      if (isPlaying.value) {
+        const state = await invoke<PlaybackState>('pause_playback')
+        applyPlaybackState(state, { includeWaveform: false })
+      } else {
+        const state = await invoke<PlaybackState>('resume_playback')
+        applyPlaybackState(state, { includeWaveform: false })
       }
+    } catch (error) {
+      notifyPlaybackError(error)
     }
   }
 
   async function stopPlayback() {
-    stopPolling()
-    const state = await invoke<PlaybackState>('stop_playback')
-    calibratePosition(state)
+    try {
+      const state = await invoke<PlaybackState>('stop_playback')
+      applyPlaybackState(state, { includeWaveform: false })
+    } catch (error) {
+      notifyPlaybackError(error)
+    }
   }
 
   async function seekTo(ms: number) {
-    const state = await invoke<PlaybackState>('seek_playback', { position_ms: ms })
-    calibratePosition(state)
-    if (state.is_playing) {
-      startPositionExtrapolation()
-    } else {
-      stopPositionExtrapolation()
+    try {
+      const state = await invoke<PlaybackState>('seek_playback', { position_ms: ms })
+      applyPlaybackState(state, { includeWaveform: false })
+    } catch (error) {
+      notifyPlaybackError(error)
     }
   }
 
@@ -173,12 +112,18 @@ export const usePlayerStore = defineStore('player', () => {
   function toggleMute() {
     if (volume.value > 0) { lastVolume.value = volume.value; volume.value = 0 }
     else { volume.value = lastVolume.value || 80 }
-    invoke('set_playback_volume', { volume: volume.value / 100 })
+    invoke('set_playback_volume', { volume: volume.value / 100 }).catch(notifyPlaybackError)
   }
 
   async function setVolume(v: number) {
+    const previousVolume = volume.value
     volume.value = v
-    await invoke('set_playback_volume', { volume: v / 100 })
+    try {
+      await invoke('set_playback_volume', { volume: v / 100 })
+    } catch (error) {
+      volume.value = previousVolume
+      notifyPlaybackError(error)
+    }
   }
 
   function persistWaveformZoom() {
@@ -211,6 +156,7 @@ export const usePlayerStore = defineStore('player', () => {
   return {
     isPlaying, isLooping, currentIndex, volume, lastVolume, showEn,
     currentPath, positionMs, durationMs, waveformSamples, waveformZoom,
+    applyPlaybackState, setEstimatedPosition,
     startPlayback, togglePlay, stopPlayback, seekTo,
     toggleLoop, toggleMute, setVolume, setCurrentIndex, prevSentence, nextSentence,
     toggleEn, setWaveformZoom, zoomInWaveform, zoomOutWaveform, resetWaveformZoom,

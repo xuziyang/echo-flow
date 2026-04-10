@@ -11,20 +11,6 @@ const app = useAppStore()
 <template>
   <div class="flex-1 flex flex-col h-full w-full relative transition-colors duration-500"
        :class="app.theme === 'dark' ? 'bg-dark-bg text-dark-text' : 'bg-light-bg text-light-text'">
-    <!-- Player Header -->
-    <header class="h-16 flex items-center justify-between px-8 flex-shrink-0 z-10">
-      <div class="flex items-center gap-4 ml-8">
-        <button @click="app.toggleSidebar()"
-                class="w-8 h-8 rounded-full flex items-center justify-center transition-colors"
-                :class="app.theme === 'dark' ? 'bg-dark-card hover:bg-dark-hover text-white' : 'bg-light-card hover:bg-light-hover text-black'">
-          <Icon :name="app.showSidebar ? 'outdent' : 'indent'" class="text-sm" />
-        </button>
-        <h2 class="font-semibold text-lg tracking-tight" :class="app.theme === 'dark' ? 'text-white' : 'text-black'">
-          {{ app.currentTitle }}
-        </h2>
-      </div>
-    </header>
-
     <!-- Listening Mode Content -->
     <div class="flex-1 flex flex-col items-center overflow-hidden animate-fade-in pt-4 pb-10 px-8">
       <PlayerCard />

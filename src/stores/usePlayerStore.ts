@@ -12,24 +12,6 @@ export interface PlaybackState {
   waveform_samples: number[]
 }
 
-const WAVEFORM_ZOOM_KEY = 'echo-flow.waveform-zoom'
-const MIN_WAVEFORM_ZOOM = 1
-const MAX_WAVEFORM_ZOOM = 40
-const WAVEFORM_ZOOM_STEP = 0.25
-
-function clampWaveformZoom(value: number): number {
-  return Math.min(MAX_WAVEFORM_ZOOM, Math.max(MIN_WAVEFORM_ZOOM, value))
-}
-
-function loadWaveformZoom(): number {
-  if (typeof window === 'undefined') return MIN_WAVEFORM_ZOOM
-  const stored = window.localStorage.getItem(WAVEFORM_ZOOM_KEY)
-  if (!stored) return MIN_WAVEFORM_ZOOM
-  const parsed = Number.parseFloat(stored)
-  if (!Number.isFinite(parsed)) return MIN_WAVEFORM_ZOOM
-  return clampWaveformZoom(parsed)
-}
-
 export const usePlayerStore = defineStore('player', () => {
   const app = useAppStore()
   const isPlaying = ref(false)
@@ -42,7 +24,6 @@ export const usePlayerStore = defineStore('player', () => {
   const positionMs = ref(0)
   const durationMs = ref(0)
   const waveformSamples = ref<number[]>([])
-  const waveformZoom = ref(loadWaveformZoom())
 
   function notifyPlaybackError(error: unknown) {
     const message = typeof error === 'string' ? error : String(error)
@@ -126,28 +107,6 @@ export const usePlayerStore = defineStore('player', () => {
     }
   }
 
-  function persistWaveformZoom() {
-    if (typeof window === 'undefined') return
-    window.localStorage.setItem(WAVEFORM_ZOOM_KEY, waveformZoom.value.toString())
-  }
-
-  function setWaveformZoom(value: number) {
-    waveformZoom.value = clampWaveformZoom(Math.round(value * 100) / 100)
-    persistWaveformZoom()
-  }
-
-  function zoomInWaveform() {
-    setWaveformZoom(waveformZoom.value + WAVEFORM_ZOOM_STEP)
-  }
-
-  function zoomOutWaveform() {
-    setWaveformZoom(waveformZoom.value - WAVEFORM_ZOOM_STEP)
-  }
-
-  function resetWaveformZoom() {
-    setWaveformZoom(MIN_WAVEFORM_ZOOM)
-  }
-
   function setCurrentIndex(i: number) { currentIndex.value = i }
   function prevSentence() { if (currentIndex.value > 0) currentIndex.value-- }
   function nextSentence(maxIndex: number) { if (currentIndex.value < maxIndex) currentIndex.value++ }
@@ -155,10 +114,10 @@ export const usePlayerStore = defineStore('player', () => {
 
   return {
     isPlaying, isLooping, currentIndex, volume, lastVolume, showEn,
-    currentPath, positionMs, durationMs, waveformSamples, waveformZoom,
+    currentPath, positionMs, durationMs, waveformSamples,
     applyPlaybackState, setEstimatedPosition,
     startPlayback, togglePlay, stopPlayback, seekTo,
     toggleLoop, toggleMute, setVolume, setCurrentIndex, prevSentence, nextSentence,
-    toggleEn, setWaveformZoom, zoomInWaveform, zoomOutWaveform, resetWaveformZoom,
+    toggleEn,
   }
 })

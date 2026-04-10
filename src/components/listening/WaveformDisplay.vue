@@ -11,19 +11,6 @@ const canvasRef = ref<HTMLCanvasElement | null>(null)
 const progress = computed(() =>
   player.durationMs > 0 ? player.positionMs / player.durationMs : 0
 )
-const zoomLabel = computed(() => `${player.waveformZoom.toFixed(2).replace(/\.?0+$/, '')}x`)
-
-function onWaveformWheel(event: WheelEvent) {
-  // In most browsers, pinch-to-zoom on trackpads emits wheel events with ctrlKey=true.
-  if (!event.ctrlKey) return
-  event.preventDefault()
-
-  if (event.deltaY < 0) {
-    player.zoomInWaveform()
-  } else if (event.deltaY > 0) {
-    player.zoomOutWaveform()
-  }
-}
 
 const colors = computed(() => ({
   activeColor: app.theme === 'dark' ? '#5e93c4' : '#4f88b8',
@@ -38,7 +25,6 @@ useWaveform(canvasRef, {
   samples: computed(() => player.waveformSamples),
   isPlaying: computed(() => player.isPlaying),
   progress,
-  zoom: computed(() => player.waveformZoom),
   activeColor: computed(() => colors.value.activeColor),
   inactiveColor: computed(() => colors.value.inactiveColor),
   playedColor: computed(() => colors.value.playedColor),
@@ -49,32 +35,8 @@ useWaveform(canvasRef, {
 </script>
 
 <template>
-  <div class="flex flex-col gap-2">
-    <div class="flex items-center justify-end gap-2 text-[11px]">
-      <span class="font-mono tabular-nums px-2 py-1 rounded border"
-            :class="app.theme === 'dark' ? 'text-gray-300 border-dark-border bg-dark-bg' : 'text-gray-600 border-light-border bg-white'">
-        {{ zoomLabel }}
-      </span>
-      <button class="px-2 py-1 rounded border transition-colors"
-              :class="app.theme === 'dark' ? 'border-dark-border text-gray-300 hover:text-white hover:border-gray-500' : 'border-light-border text-gray-600 hover:text-black hover:border-gray-400'"
-              @click="player.zoomOutWaveform()">
-        -
-      </button>
-      <button class="px-2 py-1 rounded border transition-colors"
-              :class="app.theme === 'dark' ? 'border-dark-border text-gray-300 hover:text-white hover:border-gray-500' : 'border-light-border text-gray-600 hover:text-black hover:border-gray-400'"
-              @click="player.zoomInWaveform()">
-        +
-      </button>
-      <button class="px-2 py-1 rounded border transition-colors"
-              :class="app.theme === 'dark' ? 'border-dark-border text-gray-300 hover:text-white hover:border-gray-500' : 'border-light-border text-gray-600 hover:text-black hover:border-gray-400'"
-              @click="player.resetWaveformZoom()">
-        Reset
-      </button>
-    </div>
-    <div class="h-24 relative rounded-md overflow-hidden border"
-         :class="app.theme === 'dark' ? 'border-dark-border' : 'border-gray-300'"
-         @wheel="onWaveformWheel">
+  <div class="h-24 relative rounded-md overflow-hidden border"
+       :class="app.theme === 'dark' ? 'border-dark-border' : 'border-gray-300'">
       <canvas ref="canvasRef" class="absolute inset-0 w-full h-full" />
-    </div>
   </div>
 </template>

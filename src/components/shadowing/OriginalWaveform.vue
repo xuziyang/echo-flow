@@ -26,7 +26,6 @@ useWaveform(canvasRef, {
   samples: computed(() => player.waveformSamples),
   isPlaying: computed(() => player.isPlaying),
   progress,
-  zoom: ref(1),
   activeColor: computed(() => colors.value.activeColor),
   inactiveColor: computed(() => colors.value.inactiveColor),
   playedColor: computed(() => colors.value.playedColor),

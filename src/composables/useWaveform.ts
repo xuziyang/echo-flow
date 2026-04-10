@@ -8,7 +8,6 @@ export interface WaveformOptions {
   samples: Ref<number[]>
   isPlaying: Ref<boolean>
   progress: Ref<number> // 0.0 - 1.0
-  zoom: Ref<number>
   activeColor: MaybeRefOrGetter<string>
   inactiveColor: MaybeRefOrGetter<string>
   playedColor: MaybeRefOrGetter<string>
@@ -22,7 +21,6 @@ export function useWaveform(canvasRef: Ref<HTMLCanvasElement | null>, options: W
     samples,
     isPlaying,
     progress,
-    zoom,
     activeColor,
     inactiveColor,
     playedColor,
@@ -122,9 +120,8 @@ export function useWaveform(canvasRef: Ref<HTMLCanvasElement | null>, options: W
     }
 
     const centerY = H / 2
-    const zoomLevel = Math.max(1, zoom.value || 1)
     const fullProgressPos = Math.max(0, Math.min(1, progress.value)) * n
-    const visibleCount = Math.max(1, Math.min(n, Math.round(n / zoomLevel)))
+    const visibleCount = Math.max(1, n)
     const samplesPerPixel = visibleCount / Math.max(1, W)
     const detailFactor = clamp01(1 - Math.min(1, samplesPerPixel))
 
@@ -307,7 +304,7 @@ export function useWaveform(canvasRef: Ref<HTMLCanvasElement | null>, options: W
       { immediate: true },
     )
 
-    watch([samples, isPlaying, progress, zoom], () => {
+    watch([samples, isPlaying, progress], () => {
       if (canvasRef.value) {
         startDrawing()
       }

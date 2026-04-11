@@ -12,7 +12,6 @@ export interface WaveformOptions {
   inactiveColor: MaybeRefOrGetter<string>
   playedColor: MaybeRefOrGetter<string>
   backgroundColor?: MaybeRefOrGetter<string>
-  gridColor?: MaybeRefOrGetter<string>
   centerLineColor?: MaybeRefOrGetter<string>
 }
 
@@ -25,7 +24,6 @@ export function useWaveform(canvasRef: Ref<HTMLCanvasElement | null>, options: W
     inactiveColor,
     playedColor,
     backgroundColor,
-    gridColor,
     centerLineColor,
   } = options
 
@@ -124,28 +122,6 @@ export function useWaveform(canvasRef: Ref<HTMLCanvasElement | null>, options: W
     const visibleCount = Math.max(1, n)
     const samplesPerPixel = visibleCount / Math.max(1, W)
     const detailFactor = clamp01(1 - Math.min(1, samplesPerPixel))
-
-    const resolvedGridColor = gridColor ? toValue(gridColor) : ''
-    if (resolvedGridColor) {
-      const gridAlpha = 1 - detailFactor * 0.45
-      ctx.strokeStyle = applyAlphaToColor(resolvedGridColor, gridAlpha)
-      ctx.lineWidth = 1
-      ctx.beginPath()
-
-      const vStep = Math.max(22, Math.round(W / 28))
-      for (let x = 0; x <= W; x += vStep) {
-        ctx.moveTo(x + 0.5, 0)
-        ctx.lineTo(x + 0.5, H)
-      }
-
-      const hStep = Math.max(14, Math.round(H / 8))
-      for (let y = 0; y <= H; y += hStep) {
-        ctx.moveTo(0, y + 0.5)
-        ctx.lineTo(W, y + 0.5)
-      }
-
-      ctx.stroke()
-    }
 
     if (n === 0) {
       if (centerLineColor) {

@@ -1,41 +1,17 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
 import { useAppStore } from '../../stores/useAppStore'
 import { useRecordingStore } from '../../stores/useRecordingStore'
-import { useWaveform } from '../../composables/useWaveform'
 import Icon from '../Icon.vue'
 
 const app = useAppStore()
 const recording = useRecordingStore()
-const canvasRef = ref<HTMLCanvasElement | null>(null)
 
-const hasData = computed(() => recording.userWaveformSamples.length > 0)
-const recordingBars = Array.from({ length: 48 }, (_, index) => ({
+// 100 bars, matching ui/index.html: Math.random() * 80 + 10 → 10%–90%
+const recordingBars = Array.from({ length: 100 }, (_, index) => ({
   id: index,
-  height: 24 + ((index * 17) % 56),
-  delay: index * 0.035,
+  height: Math.floor(Math.random() * 80 + 10),
+  delay: index * 0.05,
 }))
-
-const colors = computed(() => ({
-  activeColor: '#ef4444',   // red-500
-  inactiveColor: app.theme === 'dark' ? 'rgba(239,68,68,0.38)' : 'rgba(239,68,68,0.35)',
-  playedColor: '#f87171',    // red-400
-  backgroundColor: app.theme === 'dark' ? '#191d22' : '#ececec',
-  gridColor: app.theme === 'dark' ? 'rgba(130,145,163,0.16)' : 'rgba(127,135,145,0.2)',
-  centerLineColor: app.theme === 'dark' ? 'rgba(181,93,93,0.5)' : 'rgba(170,96,96,0.46)',
-}))
-
-useWaveform(canvasRef, {
-  samples: computed(() => recording.userWaveformSamples),
-  isPlaying: ref(false),
-  progress: ref(0),
-  activeColor: computed(() => colors.value.activeColor),
-  inactiveColor: computed(() => colors.value.inactiveColor),
-  playedColor: computed(() => colors.value.playedColor),
-  backgroundColor: computed(() => colors.value.backgroundColor),
-  gridColor: computed(() => colors.value.gridColor),
-  centerLineColor: computed(() => colors.value.centerLineColor),
-})
 </script>
 
 <template>
@@ -62,19 +38,14 @@ useWaveform(canvasRef, {
         <div
           v-for="bar in recordingBars"
           :key="bar.id"
-          class="min-w-0 flex-1 rounded-full bg-red-500 animate-wave"
-          :style="{ height: `${bar.height}%`, animationDelay: `${bar.delay}s`, maxWidth: '6px' }"
+          class="w-1 rounded-full bg-red-500 animate-wave"
+          :style="{ height: `${bar.height}%`, animationDelay: `${bar.delay}s` }"
         />
       </div>
     </div>
 
-    <!-- 录音完成后：显示波形 canvas -->
-    <template v-else-if="hasData">
-      <canvas ref="canvasRef" class="absolute inset-0 w-full h-full" />
-    </template>
-
     <!-- 无数据时占位 -->
-    <div v-else class="w-full px-10 h-24 flex items-center justify-center">
+    <div class="w-full px-10 h-24 flex items-center justify-center">
       <span class="text-sm font-light tracking-wide"
             :class="app.theme === 'dark' ? 'text-zinc-600' : 'text-gray-400'">Tap microphone to record</span>
     </div>

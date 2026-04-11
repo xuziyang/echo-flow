@@ -1,38 +1,17 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
 import { useAppStore } from '../../stores/useAppStore'
 import { usePlayerStore } from '../../stores/usePlayerStore'
-import { useWaveform } from '../../composables/useWaveform'
 import Icon from '../Icon.vue'
 
 const app = useAppStore()
 const player = usePlayerStore()
-const canvasRef = ref<HTMLCanvasElement | null>(null)
 
-const progress = computed(() =>
-  player.durationMs > 0 ? player.positionMs / player.durationMs : 0
-)
-
-const colors = computed(() => ({
-  activeColor: app.theme === 'dark' ? '#5e93c4' : '#4f88b8',
-  inactiveColor: app.theme === 'dark' ? 'rgba(96,140,182,0.45)' : 'rgba(79,136,184,0.55)',
-  playedColor: app.theme === 'dark' ? '#76abd8' : '#5f99c7',
-  backgroundColor: app.theme === 'dark' ? '#191d22' : '#ececec',
-  gridColor: app.theme === 'dark' ? 'rgba(130,145,163,0.16)' : 'rgba(127,135,145,0.2)',
-  centerLineColor: app.theme === 'dark' ? 'rgba(158,171,186,0.48)' : 'rgba(108,117,127,0.45)',
+// 100 animated bars matching ui/index.html
+const animatedBars = Array.from({ length: 100 }, (_, i) => ({
+  index: i,
+  // Random height between 20%–100% — matches Math.random() * 80 + 20
+  height: Math.floor(Math.random() * 80 + 20),
 }))
-
-useWaveform(canvasRef, {
-  samples: computed(() => player.waveformSamples),
-  isPlaying: computed(() => player.isPlaying),
-  progress,
-  activeColor: computed(() => colors.value.activeColor),
-  inactiveColor: computed(() => colors.value.inactiveColor),
-  playedColor: computed(() => colors.value.playedColor),
-  backgroundColor: computed(() => colors.value.backgroundColor),
-  gridColor: computed(() => colors.value.gridColor),
-  centerLineColor: computed(() => colors.value.centerLineColor),
-})
 </script>
 
 <template>
@@ -49,6 +28,14 @@ useWaveform(canvasRef, {
       </button>
     </div>
 
-    <canvas ref="canvasRef" class="absolute inset-0 w-full h-full" />
+    <div class="h-24 w-full px-10 flex items-center justify-center gap-1">
+      <div
+        v-for="bar in animatedBars"
+        :key="bar.index"
+        class="w-1.5 rounded-full transition-all"
+        :class="[player.isPlaying ? 'animate-wave' : '', app.theme === 'dark' ? 'bg-brand-500/40' : 'bg-black/20']"
+        :style="{ height: `${bar.height}%` }"
+      />
+    </div>
   </div>
 </template>

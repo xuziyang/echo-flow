@@ -488,19 +488,6 @@ pub fn get_playback_state() -> PlaybackState {
     PLAYER.with(|p| p.borrow().get_state())
 }
 
-/// 获取波形数据（Phase 3 预备）
-#[tauri::command]
-pub fn get_waveform_samples(num_samples: usize) -> Vec<f32> {
-    PLAYER.with(|p| {
-        let player = p.borrow();
-        let samples = player.samples.lock().unwrap();
-        if samples.is_empty() || num_samples == 0 {
-            return Vec::new();
-        }
-        let step = (samples.len() - 1) / num_samples.max(1);
-        samples.iter().step_by(step.max(1)).copied().take(num_samples).collect()
-    })
-}
 
 // ---------------------------------------------------------------------------
 // 字幕加载/保存

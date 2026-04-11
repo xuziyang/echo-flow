@@ -57,4 +57,18 @@ describe('usePlayerStore', () => {
     player.setEstimatedPosition(-120)
     expect(player.positionMs).toBe(0)
   })
+
+  it('blocks estimated position updates while seeking', () => {
+    const player = usePlayerStore()
+    player.durationMs = 5000
+    player.positionMs = 1000
+    player.seeking = true
+
+    player.setEstimatedPosition(3000)
+    expect(player.positionMs).toBe(1000)
+
+    player.seeking = false
+    player.setEstimatedPosition(3000)
+    expect(player.positionMs).toBe(3000)
+  })
 })

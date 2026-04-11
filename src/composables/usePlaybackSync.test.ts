@@ -80,4 +80,44 @@ describe('usePlaybackSync', () => {
     controller.stopPolling()
     expect(cancelAnimationFrameFn).toHaveBeenCalledWith(11)
   })
+
+  it('skips extrapolation while seeking', () => {
+    const player = usePlayerStore()
+    player.positionMs = 1000
+    player.durationMs = 5000
+    player.isPlaying = true
+
+    let now = 1000
+    const frameCallbacks: Array<(timestamp: number) => void> = []
+    const requestAnimationFrameFn = vi.fn((callback: (timestamp: number) => void) => {
+      frameCallbacks.push(callback)
+      return 11
+    })
+
+    const controller = createPlaybackSyncController(player, {
+      invokeFn: vi.fn() as never,
+      nowMs: () => now,
+      requestAnimationFrameFn,
+      cancelAnimationFrameFn: vi.fn(),
+      setIntervalFn: vi.fn(() => 1) as never,
+      clearIntervalFn: vi.fn() as never,
+    })
+
+    controller.handlePlaybackChange(true)
+
+    now = 1350
+    player.seeking = true
+    const frame = frameCallbacks[frameCallbacks.length - 1]
+    if (frame) frame(0)
+
+    expect(player.positionMs).toBe(1000)
+
+    player.seeking = false
+    controller.recalibrateAfterSeek()
+    now = 1400
+    const frame2 = frameCallbacks[frameCallbacks.length - 1]
+    if (frame2) frame2(0)
+
+    expect(player.positionMs).toBe(1050)
+  })
 })

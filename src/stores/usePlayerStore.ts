@@ -23,6 +23,7 @@ export const usePlayerStore = defineStore('player', () => {
   const currentPath = ref('')
   const positionMs = ref(0)
   const durationMs = ref(0)
+  const seeking = ref(false)
   const waveformSamples = ref<number[]>([])
 
   function notifyPlaybackError(error: unknown) {
@@ -42,6 +43,7 @@ export const usePlayerStore = defineStore('player', () => {
   }
 
   function setEstimatedPosition(ms: number) {
+    if (seeking.value) return
     const clamped = durationMs.value > 0 ? Math.min(Math.max(0, ms), durationMs.value) : Math.max(0, ms)
     positionMs.value = clamped
   }
@@ -80,11 +82,14 @@ export const usePlayerStore = defineStore('player', () => {
   }
 
   async function seekTo(ms: number) {
+    seeking.value = true
     try {
-      const state = await invoke<PlaybackState>('seek_playback', { position_ms: ms })
+      const state = await invoke<PlaybackState>('seek_playback', { positionMs: ms })
       applyPlaybackState(state, { includeWaveform: false })
     } catch (error) {
       notifyPlaybackError(error)
+    } finally {
+      seeking.value = false
     }
   }
 
@@ -113,7 +118,7 @@ export const usePlayerStore = defineStore('player', () => {
   function toggleEn() { showEn.value = !showEn.value }
 
   return {
-    isPlaying, isLooping, currentIndex, volume, lastVolume, showEn,
+    isPlaying, isLooping, currentIndex, volume, lastVolume, showEn, seeking,
     currentPath, positionMs, durationMs, waveformSamples,
     applyPlaybackState, setEstimatedPosition,
     startPlayback, togglePlay, stopPlayback, seekTo,

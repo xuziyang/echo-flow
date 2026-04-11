@@ -78,6 +78,11 @@ export function createPlaybackSyncController(
         return
       }
 
+      if (player.seeking) {
+        rafId = requestAnimationFrameFn(tick)
+        return
+      }
+
       const elapsed = Math.max(0, nowMs() - lastSyncPerfMs)
       const estimated = Math.round(lastSyncPositionMs + elapsed)
       player.setEstimatedPosition(estimated)
@@ -118,6 +123,12 @@ export function createPlaybackSyncController(
     calibrateFromState,
     handlePlaybackChange,
     stopPolling,
+    recalibrateAfterSeek,
+  }
+
+  function recalibrateAfterSeek() {
+    lastSyncPositionMs = player.positionMs
+    lastSyncPerfMs = nowMs()
   }
 }
 
@@ -131,6 +142,15 @@ export function usePlaybackSync() {
       controller.handlePlaybackChange(isPlaying)
     },
     { immediate: true },
+  )
+
+  watch(
+    () => player.seeking,
+    (isSeeking, wasSeeking) => {
+      if (wasSeeking && !isSeeking) {
+        controller.recalibrateAfterSeek()
+      }
+    },
   )
 
   onBeforeUnmount(() => {

@@ -194,6 +194,8 @@ impl AudioPlayer {
     }
 
     pub fn pause(&mut self) -> PlaybackState {
+        self.normalize_finished_state();
+
         if let PlayerState::Playing {
             start_instant,
             offset_ms,
@@ -214,6 +216,8 @@ impl AudioPlayer {
     }
 
     pub fn resume(&mut self) -> Result<PlaybackState, String> {
+        self.normalize_finished_state();
+
         if let PlayerState::Paused {
             position_ms,
             duration_ms,
@@ -222,6 +226,12 @@ impl AudioPlayer {
             if self.current_path.is_empty() {
                 return Err("没有可恢复的音频文件".to_string());
             }
+
+            let resume_position_ms = if *position_ms >= *duration_ms {
+                0
+            } else {
+                *position_ms
+            };
 
             // rodio Sink 不支持 seek，先停止当前 sink
             if let Some(sink) = self.sink.take() {
@@ -234,7 +244,7 @@ impl AudioPlayer {
             let mut source = Decoder::new(BufReader::new(file))
                 .map_err(|e| format!("无法解码音频: {}", e))?;
             source
-                .try_seek(std::time::Duration::from_millis(*position_ms))
+                .try_seek(std::time::Duration::from_millis(resume_position_ms))
                 .map_err(|e| format!("无法恢复播放位置: {}", e))?;
 
             let sink = Sink::try_new(&self.stream_handle)
@@ -245,7 +255,7 @@ impl AudioPlayer {
 
             self.state = PlayerState::Playing {
                 start_instant: Instant::now(),
-                offset_ms: *position_ms,
+                offset_ms: resume_position_ms,
                 duration_ms: *duration_ms,
             };
         }
@@ -305,6 +315,7 @@ impl AudioPlayer {
     }
 
     pub fn set_volume(&mut self, volume: f32) -> PlaybackState {
+        self.normalize_finished_state();
         self.volume = volume.clamp(0.0, 1.0);
         if let Some(sink) = &self.sink {
             sink.set_volume(self.volume);
@@ -312,8 +323,31 @@ impl AudioPlayer {
         self.build_state()
     }
 
-    pub fn get_state(&self) -> PlaybackState {
+    pub fn get_state(&mut self) -> PlaybackState {
+        self.normalize_finished_state();
         self.build_state()
+    }
+
+    fn is_sink_finished(&self) -> bool {
+        matches!(self.state, PlayerState::Playing { .. })
+            && self.sink.as_ref().is_some_and(|sink| sink.empty())
+    }
+
+    fn normalize_finished_state(&mut self) {
+        if !self.is_sink_finished() {
+            return;
+        }
+
+        if let Some(sink) = self.sink.take() {
+            sink.stop();
+        }
+
+        if let PlayerState::Playing { duration_ms, .. } = self.state {
+            self.state = PlayerState::Paused {
+                position_ms: duration_ms,
+                duration_ms,
+            };
+        }
     }
 
     fn build_state(&self) -> PlaybackState {
@@ -330,24 +364,13 @@ impl AudioPlayer {
                 duration_ms,
             } => {
                 let elapsed = start_instant.elapsed().as_millis() as u64;
-                let pos = offset_ms + elapsed;
-                let finished = self.sink.as_ref().map_or(false, |s| s.empty());
-                if finished {
-                    return PlaybackState {
-                        path: self.current_path.clone(),
-                        is_playing: false,
-                        position_ms: *duration_ms,
-                        duration_ms: *duration_ms,
-                        volume: self.volume,
-                        waveform_samples: waveform,
-                    };
-                }
+                let pos = (offset_ms + elapsed).min(*duration_ms);
                 (true, pos, *duration_ms)
             }
             PlayerState::Paused {
                 position_ms,
                 duration_ms,
-            } => (false, *position_ms, *duration_ms),
+            } => (false, (*position_ms).min(*duration_ms), *duration_ms),
         };
         PlaybackState {
             path: self.current_path.clone(),
@@ -398,7 +421,7 @@ fn start_position_emitting(app: tauri::AppHandle) {
             let app2 = app.clone();
             let _ = app.run_on_main_thread(move || {
                 PLAYER.with(|p| {
-                    let state = p.borrow().get_state();
+                    let state = p.borrow_mut().get_state();
                     let _ = app2.emit("playback-state", &state);
                     if !state.is_playing {
                         POSITION_EMITTING.store(false, Ordering::Relaxed);
@@ -415,7 +438,7 @@ fn stop_position_emitting() {
 
 fn emit_playback_state(app: &tauri::AppHandle) {
     PLAYER.with(|p| {
-        let state = p.borrow().get_state();
+        let state = p.borrow_mut().get_state();
         let _ = app.emit("playback-state", &state);
     });
 }
@@ -497,7 +520,7 @@ pub fn start_playback(app: tauri::AppHandle, path: String) -> Result<PlaybackSta
     })?;
     emit_playback_state(&app);
     start_position_emitting(app);
-    PLAYER.with(|p| Ok(p.borrow().get_state()))
+    PLAYER.with(|p| Ok(p.borrow_mut().get_state()))
 }
 
 /// 暂停播放
@@ -506,7 +529,7 @@ pub fn pause_playback(app: tauri::AppHandle) -> PlaybackState {
     stop_position_emitting();
     PLAYER.with(|p| p.borrow_mut().pause());
     emit_playback_state(&app);
-    PLAYER.with(|p| p.borrow().get_state())
+    PLAYER.with(|p| p.borrow_mut().get_state())
 }
 
 /// 继续播放
@@ -515,7 +538,7 @@ pub fn resume_playback(app: tauri::AppHandle) -> Result<PlaybackState, String> {
     PLAYER.with(|p| p.borrow_mut().resume())?;
     emit_playback_state(&app);
     start_position_emitting(app);
-    PLAYER.with(|p| Ok(p.borrow().get_state()))
+    PLAYER.with(|p| Ok(p.borrow_mut().get_state()))
 }
 
 /// 停止播放
@@ -524,7 +547,7 @@ pub fn stop_playback(app: tauri::AppHandle) -> PlaybackState {
     stop_position_emitting();
     PLAYER.with(|p| p.borrow_mut().stop());
     emit_playback_state(&app);
-    PLAYER.with(|p| p.borrow().get_state())
+    PLAYER.with(|p| p.borrow_mut().get_state())
 }
 
 /// 跳转播放位置
@@ -532,7 +555,7 @@ pub fn stop_playback(app: tauri::AppHandle) -> PlaybackState {
 pub fn seek_playback(app: tauri::AppHandle, position_ms: u64) -> Result<PlaybackState, String> {
     PLAYER.with(|p| p.borrow_mut().seek(position_ms))?;
     emit_playback_state(&app);
-    PLAYER.with(|p| Ok(p.borrow().get_state()))
+    PLAYER.with(|p| Ok(p.borrow_mut().get_state()))
 }
 
 /// 设置音量
@@ -544,7 +567,7 @@ pub fn set_playback_volume(volume: f32) -> PlaybackState {
 /// 获取当前播放状态
 #[tauri::command]
 pub fn get_playback_state() -> PlaybackState {
-    PLAYER.with(|p| p.borrow().get_state())
+    PLAYER.with(|p| p.borrow_mut().get_state())
 }
 
 

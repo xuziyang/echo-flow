@@ -1,10 +1,18 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { usePlayerStore, type PlaybackState } from './usePlayerStore'
+
+const invokeMock = vi.fn()
+
+vi.mock('@tauri-apps/api/core', () => ({
+  invoke: (...args: unknown[]) => invokeMock(...args),
+}))
 
 describe('usePlayerStore', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
+    invokeMock.mockReset()
+    vi.useRealTimers()
   })
 
   it('applies playback state including waveform data by default', () => {
@@ -70,5 +78,75 @@ describe('usePlayerStore', () => {
     player.seeking = false
     player.setEstimatedPosition(3000)
     expect(player.positionMs).toBe(3000)
+  })
+
+  it('does not start sentence playback when timing data is missing', async () => {
+    const player = usePlayerStore()
+    player.currentPath = '/tmp/audio.mp3'
+
+    await expect(player.playSentenceSegment(undefined, 1500)).resolves.toBe(false)
+    await expect(player.playSentenceSegment(1500, 1500)).resolves.toBe(false)
+    expect(invokeMock).not.toHaveBeenCalled()
+  })
+
+  it('plays the current sentence segment and pauses at the end', async () => {
+    vi.useFakeTimers()
+    const player = usePlayerStore()
+    player.applyPlaybackState({
+      path: '/tmp/audio.mp3',
+      is_playing: false,
+      position_ms: 0,
+      duration_ms: 5000,
+      volume: 0.8,
+      waveform_samples: [],
+    })
+
+    const seekState: PlaybackState = {
+      path: '/tmp/audio.mp3',
+      is_playing: true,
+      position_ms: 1200,
+      duration_ms: 5000,
+      volume: 0.8,
+      waveform_samples: [],
+    }
+
+    const nearEndState: PlaybackState = {
+      ...seekState,
+      position_ms: 1480,
+    }
+
+    const pastEndState: PlaybackState = {
+      ...seekState,
+      position_ms: 1630,
+    }
+
+    const pausedState: PlaybackState = {
+      ...seekState,
+      is_playing: false,
+      position_ms: 1630,
+    }
+
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'seek_playback') return Promise.resolve(seekState)
+      if (command === 'get_playback_state') {
+        const next = invokeMock.mock.calls.filter(([name]) => name === 'get_playback_state').length === 1
+          ? nearEndState
+          : pastEndState
+        return Promise.resolve(next)
+      }
+      if (command === 'pause_playback') return Promise.resolve(pausedState)
+      return Promise.reject(new Error(`Unexpected command: ${command}`))
+    })
+
+    const playbackPromise = player.playSentenceSegment(1200, 1600)
+
+    await vi.advanceTimersByTimeAsync(200)
+    await expect(playbackPromise).resolves.toBe(true)
+
+    expect(invokeMock).toHaveBeenCalledWith('seek_playback', { positionMs: 1200 })
+    expect(invokeMock).toHaveBeenCalledWith('pause_playback')
+    expect(player.activeSegmentEndMs).toBe(null)
+    expect(player.isPlaying).toBe(false)
+    expect(player.positionMs).toBe(1630)
   })
 })

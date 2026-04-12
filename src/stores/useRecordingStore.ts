@@ -3,20 +3,43 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { useAppStore } from './useAppStore'
+import { usePlayerStore } from './usePlayerStore'
+import { useTranscriptStore } from './useTranscriptStore'
 
 export const useRecordingStore = defineStore('recording', () => {
   const app = useAppStore()
+  const player = usePlayerStore()
+  const transcript = useTranscriptStore()
   const isRecording = ref(false)
   const userAudioUrl = ref<string | null>(null)
   const userWaveformSamples = ref<number[]>([])
   const recordingBlob = ref<Blob | null>(null)
+  const activePlaybackMode = ref<'recording' | 'comparison' | null>(null)
 
   let mediaRecorder: MediaRecorder | null = null
   let recordingStream: MediaStream | null = null
   let audioChunks: Blob[] = []
+  let activeAudio: HTMLAudioElement | null = null
+  let playbackToken = 0
+
+  function clearActiveAudio() {
+    if (!activeAudio) return
+    activeAudio.pause()
+    activeAudio.currentTime = 0
+    activeAudio.onended = null
+    activeAudio.onerror = null
+    activeAudio = null
+  }
+
+  function stopPlayback() {
+    playbackToken += 1
+    clearActiveAudio()
+    activePlaybackMode.value = null
+  }
 
   function revokeUserAudioUrl() {
     if (!userAudioUrl.value) return
+    stopPlayback()
     URL.revokeObjectURL(userAudioUrl.value)
     userAudioUrl.value = null
   }
@@ -37,6 +60,8 @@ export const useRecordingStore = defineStore('recording', () => {
 
   async function startRecording() {
     try {
+      stopPlayback()
+      await player.clearSentenceSegment({ pausePlayback: true })
       stopRecordingStream()
       recordingStream = await navigator.mediaDevices.getUserMedia({ audio: true })
       mediaRecorder = new MediaRecorder(recordingStream, { mimeType: 'audio/webm' })
@@ -77,15 +102,48 @@ export const useRecordingStore = defineStore('recording', () => {
     isRecording.value = false
   }
 
-  async function playComparison() {
+  async function playUserRecording(mode: 'recording' | 'comparison' = 'recording') {
     if (!userAudioUrl.value) return
+
+    stopPlayback()
+    await player.clearSentenceSegment({ pausePlayback: true })
+    playbackToken += 1
+    const currentToken = playbackToken
+    activePlaybackMode.value = mode
 
     try {
       const audio = new Audio(userAudioUrl.value)
+      activeAudio = audio
+      audio.onended = () => {
+        if (currentToken !== playbackToken) return
+        clearActiveAudio()
+        activePlaybackMode.value = null
+      }
+      audio.onerror = () => {
+        if (currentToken !== playbackToken) return
+        clearActiveAudio()
+        activePlaybackMode.value = null
+        app.showSubtitleToast('录音播放失败', 'error')
+      }
       await audio.play()
     } catch (error) {
+      clearActiveAudio()
+      activePlaybackMode.value = null
       app.showSubtitleToast(typeof error === 'string' ? error : String(error), 'error')
     }
+  }
+
+  async function playComparison() {
+    if (!userAudioUrl.value) return
+
+    const sentence = transcript.sentences[player.currentIndex]
+    const startedOriginal = await player.playSentenceSegment(sentence?.start_ms, sentence?.end_ms)
+    if (!startedOriginal) {
+      app.showSubtitleToast('当前句缺少时间戳，无法播放原音对比', 'error')
+      return
+    }
+
+    await playUserRecording('comparison')
   }
 
   async function saveRecording(path: string) {
@@ -146,8 +204,11 @@ export const useRecordingStore = defineStore('recording', () => {
     isRecording,
     userAudioUrl,
     userWaveformSamples,
+    activePlaybackMode,
     toggleRecording,
+    playUserRecording,
     playComparison,
     saveRecording,
+    stopPlayback,
   }
 })

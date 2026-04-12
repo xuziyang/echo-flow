@@ -25,10 +25,28 @@ export const usePlayerStore = defineStore('player', () => {
   const durationMs = ref(0)
   const seeking = ref(false)
   const waveformSamples = ref<number[]>([])
+  const activeSegmentEndMs = ref<number | null>(null)
+
+  let segmentMonitorId: ReturnType<typeof setInterval> | null = null
+  let segmentPlaybackToken = 0
+  let resolveSegmentPlayback: ((completed: boolean) => void) | null = null
 
   function notifyPlaybackError(error: unknown) {
     const message = typeof error === 'string' ? error : String(error)
     app.showSubtitleToast(message, 'error')
+  }
+
+  function finishSegmentPlayback(completed: boolean) {
+    activeSegmentEndMs.value = null
+    if (segmentMonitorId !== null) {
+      clearInterval(segmentMonitorId)
+      segmentMonitorId = null
+    }
+
+    if (resolveSegmentPlayback) {
+      resolveSegmentPlayback(completed)
+      resolveSegmentPlayback = null
+    }
   }
 
   function applyPlaybackState(state: PlaybackState, options?: { includeWaveform?: boolean }) {
@@ -78,6 +96,7 @@ export const usePlayerStore = defineStore('player', () => {
   }
 
   async function stopPlayback() {
+    finishSegmentPlayback(false)
     try {
       const state = await invoke<PlaybackState>('stop_playback')
       applyPlaybackState(state, { includeWaveform: false })
@@ -96,6 +115,90 @@ export const usePlayerStore = defineStore('player', () => {
     } finally {
       seeking.value = false
     }
+  }
+
+  function canPlaySentenceSegment(startMs?: number, endMs?: number) {
+    return Boolean(
+      currentPath.value
+      && Number.isFinite(startMs)
+      && Number.isFinite(endMs)
+      && (startMs as number) >= 0
+      && (endMs as number) > (startMs as number),
+    )
+  }
+
+  async function clearSentenceSegment(options?: { pausePlayback?: boolean }) {
+    segmentPlaybackToken += 1
+    finishSegmentPlayback(false)
+
+    if (!options?.pausePlayback || !isPlaying.value) {
+      return
+    }
+
+    try {
+      const state = await invoke<PlaybackState>('pause_playback')
+      applyPlaybackState(state, { includeWaveform: false })
+    } catch (error) {
+      notifyPlaybackError(error)
+    }
+  }
+
+  async function playSentenceSegment(startMs?: number, endMs?: number): Promise<boolean> {
+    if (!canPlaySentenceSegment(startMs, endMs)) {
+      return false
+    }
+
+    await clearSentenceSegment()
+    const playbackToken = ++segmentPlaybackToken
+    const segmentEnd = endMs as number
+
+    seeking.value = true
+    try {
+      const state = await invoke<PlaybackState>('seek_playback', { positionMs: startMs as number })
+      if (playbackToken !== segmentPlaybackToken) {
+        return false
+      }
+
+      activeSegmentEndMs.value = segmentEnd
+      applyPlaybackState(state, { includeWaveform: false })
+    } catch (error) {
+      notifyPlaybackError(error)
+      finishSegmentPlayback(false)
+      return false
+    } finally {
+      seeking.value = false
+    }
+
+    return await new Promise<boolean>((resolve) => {
+      resolveSegmentPlayback = resolve
+      segmentMonitorId = setInterval(async () => {
+        if (playbackToken !== segmentPlaybackToken) return
+
+        try {
+          const state = await invoke<PlaybackState>('get_playback_state')
+          if (playbackToken !== segmentPlaybackToken) return
+
+          applyPlaybackState(state, { includeWaveform: false })
+
+          if (state.position_ms >= segmentEnd) {
+            if (state.is_playing) {
+              const pausedState = await invoke<PlaybackState>('pause_playback')
+              if (playbackToken !== segmentPlaybackToken) return
+              applyPlaybackState(pausedState, { includeWaveform: false })
+            }
+            finishSegmentPlayback(true)
+            return
+          }
+
+          if (!state.is_playing) {
+            finishSegmentPlayback(false)
+          }
+        } catch (error) {
+          notifyPlaybackError(error)
+          finishSegmentPlayback(false)
+        }
+      }, 80)
+    })
   }
 
   function toggleLoop() { isLooping.value = !isLooping.value }
@@ -124,9 +227,10 @@ export const usePlayerStore = defineStore('player', () => {
 
   return {
     isPlaying, isLooping, currentIndex, volume, lastVolume, showEn, seeking,
-    currentPath, positionMs, durationMs, waveformSamples,
+    currentPath, positionMs, durationMs, waveformSamples, activeSegmentEndMs,
     applyPlaybackState, applyWaveformPreview, setEstimatedPosition,
     startPlayback, togglePlay, stopPlayback, seekTo,
+    canPlaySentenceSegment, clearSentenceSegment, playSentenceSegment,
     toggleLoop, toggleMute, setVolume, setCurrentIndex, prevSentence, nextSentence,
     toggleEn,
   }

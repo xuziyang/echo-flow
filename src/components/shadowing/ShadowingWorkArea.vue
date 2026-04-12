@@ -20,7 +20,6 @@ const transcript = useTranscriptStore()
                 :class="app.theme === 'dark' ? 'text-gray-500 hover:text-white' : 'text-gray-400 hover:text-black'">
           <Icon name="arrow-left" /> Back to Listening
         </button>
-        <h3 class="text-lg font-bold" :class="app.theme === 'dark' ? 'text-white' : 'text-black'">Shadowing Challenge</h3>
       </div>
     </div>
 

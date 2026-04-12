@@ -57,13 +57,18 @@ export const useFilesStore = defineStore('files', () => {
       const transcript = useTranscriptStore()
       void transcript.startTranscribe(result.path)
 
-      // 加载音频到播放器（不播放）
+      // 先登记最小播放状态，避免导入时等待完整解码。
       const player = usePlayerStore()
       const state = await invoke<{
         path: string; is_playing: boolean; position_ms: number;
         duration_ms: number; volume: number; waveform_samples: number[];
-      }>('load_audio', { path: selected })
+      }>('prepare_audio', { path: selected, durationMs: result.duration_ms })
       player.applyPlaybackState(state)
+
+      // 波形预览改为后台加载，完成后通过事件补齐。
+      void invoke('load_waveform_preview', { path: selected }).catch((error) => {
+        app.showSubtitleToast(typeof error === 'string' ? error : String(error), 'error')
+      })
     } catch (error) {
       app.showSubtitleToast(typeof error === 'string' ? error : String(error), 'error')
     }

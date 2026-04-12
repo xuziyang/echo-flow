@@ -2,6 +2,7 @@
 import { useAppStore } from './stores/useAppStore'
 import { usePlaybackSync } from './composables/usePlaybackSync'
 import { useTranscribeEvents } from './composables/useTranscribeEvents'
+import { useWaveformPreviewEvents } from './composables/useWaveformPreviewEvents'
 import TitleBar from './components/layout/TitleBar.vue'
 import AppSidebar from './components/layout/AppSidebar.vue'
 import SubtitleToast from './components/layout/SubtitleToast.vue'
@@ -12,6 +13,7 @@ import SettingsView from './views/SettingsView.vue'
 const app = useAppStore()
 usePlaybackSync()
 useTranscribeEvents()
+useWaveformPreviewEvents()
 </script>
 
 <template>

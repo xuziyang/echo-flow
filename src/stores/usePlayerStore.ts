@@ -42,6 +42,11 @@ export const usePlayerStore = defineStore('player', () => {
     }
   }
 
+  function applyWaveformPreview(path: string, samples: number[]) {
+    if (path !== currentPath.value) return
+    waveformSamples.value = samples
+  }
+
   function setEstimatedPosition(ms: number) {
     if (seeking.value) return
     const clamped = durationMs.value > 0 ? Math.min(Math.max(0, ms), durationMs.value) : Math.max(0, ms)
@@ -120,7 +125,7 @@ export const usePlayerStore = defineStore('player', () => {
   return {
     isPlaying, isLooping, currentIndex, volume, lastVolume, showEn, seeking,
     currentPath, positionMs, durationMs, waveformSamples,
-    applyPlaybackState, setEstimatedPosition,
+    applyPlaybackState, applyWaveformPreview, setEstimatedPosition,
     startPlayback, togglePlay, stopPlayback, seekTo,
     toggleLoop, toggleMute, setVolume, setCurrentIndex, prevSentence, nextSentence,
     toggleEn,

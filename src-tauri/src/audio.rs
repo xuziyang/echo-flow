@@ -36,6 +36,18 @@ pub struct PlaybackState {
     pub waveform_samples: Vec<f32>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct WaveformPreviewEvent {
+    pub path: String,
+    pub waveform_samples: Vec<f32>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct WaveformPreviewErrorEvent {
+    pub path: String,
+    pub error: String,
+}
+
 // ---------------------------------------------------------------------------
 // 播放器
 // ---------------------------------------------------------------------------
@@ -129,6 +141,20 @@ impl AudioPlayer {
             volume: self.volume,
             waveform_samples: waveform,
         })
+    }
+
+    /// 仅登记当前音频，不做完整解码，供导入后立即进入可播放状态。
+    pub fn prepare(&mut self, path: &str, duration_ms: u64) -> PlaybackState {
+        self.stop_internal();
+        self.current_path = path.to_string();
+        self.state = PlayerState::Paused {
+            position_ms: 0,
+            duration_ms,
+        };
+        self.samples.lock().unwrap().clear();
+        *self.sample_rate.lock().unwrap() = 44100;
+        *self.channels.lock().unwrap() = 2;
+        self.build_state()
     }
 
     /// 加载并开始播放
@@ -443,6 +469,20 @@ fn emit_playback_state(app: &tauri::AppHandle) {
     });
 }
 
+fn extract_waveform_preview(path: &str) -> Result<Vec<f32>, String> {
+    let file = File::open(path).map_err(|e| format!("无法打开文件: {}", e))?;
+    let source = Decoder::new(BufReader::new(file))
+        .map_err(|e| format!("无法解码音频: {}", e))?;
+
+    let all_samples: Vec<f32> = source.convert_samples().collect();
+    if all_samples.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let step = ((all_samples.len() - 1) / 200).max(1);
+    Ok(all_samples.iter().step_by(step).copied().take(200).collect())
+}
+
 // ---------------------------------------------------------------------------
 // Tauri IPC 命令
 // ---------------------------------------------------------------------------
@@ -509,6 +549,50 @@ pub fn load_audio(path: String) -> Result<PlaybackState, String> {
         let mut player = p.borrow_mut();
         player.load(&path)
     })
+}
+
+/// 仅登记音频基本播放状态，不做完整解码。
+#[tauri::command]
+pub fn prepare_audio(path: String, duration_ms: u64) -> Result<PlaybackState, String> {
+    if !std::path::Path::new(&path).exists() {
+        return Err(format!("文件不存在: {}", path));
+    }
+
+    PLAYER.with(|p| {
+        let mut player = p.borrow_mut();
+        Ok(player.prepare(&path, duration_ms))
+    })
+}
+
+/// 后台加载波形预览，避免阻塞导入流程。
+#[tauri::command]
+pub fn load_waveform_preview(window: tauri::Window, path: String) -> Result<(), String> {
+    if !std::path::Path::new(&path).exists() {
+        return Err(format!("文件不存在: {}", path));
+    }
+
+    std::thread::spawn(move || match extract_waveform_preview(&path) {
+        Ok(waveform_samples) => {
+            let _ = window.emit(
+                "waveform-preview-ready",
+                WaveformPreviewEvent {
+                    path,
+                    waveform_samples,
+                },
+            );
+        }
+        Err(error) => {
+            let _ = window.emit(
+                "waveform-preview-error",
+                WaveformPreviewErrorEvent {
+                    path,
+                    error,
+                },
+            );
+        }
+    });
+
+    Ok(())
 }
 
 /// 开始播放音频

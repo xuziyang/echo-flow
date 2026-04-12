@@ -23,6 +23,8 @@ pub fn run() {
             audio::load_subtitle_file,
             audio::save_subtitle_file,
             audio::load_audio,
+            audio::prepare_audio,
+            audio::load_waveform_preview,
             audio::start_playback,
             audio::pause_playback,
             audio::resume_playback,
@@ -47,4 +49,3 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
-

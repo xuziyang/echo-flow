@@ -91,10 +91,13 @@ watch(() => player.durationMs, (duration) => {
 </script>
 
 <template>
-  <div class="flex flex-col gap-4">
-    <div class="flex items-center gap-3">
-      <span class="text-[11px] font-mono tabular-nums"
-            :class="app.theme === 'dark' ? 'text-gray-400' : 'text-gray-500'">
+  <div class="flex flex-col gap-3">
+    <div class="rounded-xl border px-2.5 py-1.5 flex items-center gap-2.5"
+         :class="app.theme === 'dark'
+           ? 'border-white/10 bg-black/[0.15]'
+           : 'border-black/10 bg-white/70'">
+      <span class="text-[10px] font-mono tabular-nums min-w-[38px]"
+            :class="app.theme === 'dark' ? 'text-gray-300' : 'text-gray-600'">
         {{ formatTime(displayedPositionMs) }}
       </span>
 
@@ -104,47 +107,68 @@ watch(() => player.durationMs, (duration) => {
         :max="seekBarMax"
         :value="displayedPositionMs"
         :disabled="seekBarMax <= 0"
-        class="seek-slider w-full h-1 rounded-full cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
+        class="seek-slider w-full h-1 rounded-full cursor-pointer disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none"
         @input="onSeekInput"
         @change="commitSeek"
         :style="seekTrackStyle"
       />
 
-      <span class="text-[11px] font-mono tabular-nums"
-            :class="app.theme === 'dark' ? 'text-gray-400' : 'text-gray-500'">
+      <span class="text-[10px] font-mono tabular-nums min-w-[38px] text-right"
+            :class="app.theme === 'dark' ? 'text-gray-300' : 'text-gray-600'">
         {{ formatTime(player.durationMs) }}
       </span>
     </div>
 
-    <div class="grid grid-cols-3 items-center">
-    <!-- Center: Controls -->
-      <div class="flex items-center gap-6 justify-self-center">
-        <button @click="player.prevSentence()" class="text-lg transition-colors"
-                :class="app.theme === 'dark' ? 'text-gray-400 hover:text-white' : 'text-gray-400 hover:text-black'">
-          <Icon name="backward-step" />
+    <div class="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+      <div />
+
+      <div class="flex items-center gap-1.5 rounded-2xl border px-1.5 py-1 justify-self-center"
+           :class="app.theme === 'dark'
+             ? 'border-white/10 bg-black/20'
+             : 'border-black/10 bg-white/80'">
+        <button @click="player.prevSentence()"
+                class="h-8 w-8 rounded-lg flex items-center justify-center transition-colors"
+                :class="app.theme === 'dark'
+                  ? 'text-gray-300 hover:text-white hover:bg-white/10'
+                  : 'text-gray-600 hover:text-black hover:bg-black/[0.06]'">
+          <Icon name="backward-step" :size="15" />
         </button>
+
         <button @click="player.togglePlay()"
-                class="w-12 h-12 rounded-full flex items-center justify-center shadow-lg hover:scale-105 transition-all"
-                :class="app.theme === 'dark' ? 'bg-brand-500 hover:bg-brand-400 text-white shadow-brand-500/20' : 'bg-black hover:bg-gray-800 text-white shadow-black/20'">
-          <Icon :name="player.isPlaying ? 'pause' : 'play'" class="text-lg" />
+                class="w-9 h-9 rounded-xl flex items-center justify-center shadow-lg hover:scale-[1.03] transition-all"
+                :class="app.theme === 'dark'
+                  ? 'bg-sky-500 hover:bg-sky-400 text-white shadow-sky-500/25'
+                  : 'bg-black hover:bg-gray-800 text-white shadow-black/20'">
+          <Icon :name="player.isPlaying ? 'pause' : 'play'" :size="15" />
         </button>
-        <button @click="player.nextSentence(transcript.sentences.length - 1)" class="text-lg transition-colors"
-                :class="app.theme === 'dark' ? 'text-gray-400 hover:text-white' : 'text-gray-400 hover:text-black'">
-          <Icon name="forward-step" />
+
+        <button @click="player.nextSentence(transcript.sentences.length - 1)"
+                class="h-8 w-8 rounded-lg flex items-center justify-center transition-colors"
+                :class="app.theme === 'dark'
+                  ? 'text-gray-300 hover:text-white hover:bg-white/10'
+                  : 'text-gray-600 hover:text-black hover:bg-black/[0.06]'">
+          <Icon name="forward-step" :size="15" />
         </button>
-        <button @click="player.toggleLoop()" class="text-lg transition-colors relative"
-                :class="player.isLooping ? 'text-brand-500' : (app.theme === 'dark' ? 'text-gray-400 hover:text-white' : 'text-gray-400 hover:text-black')"
+
+        <button @click="player.toggleLoop()"
+                class="h-8 w-8 rounded-lg flex items-center justify-center transition-colors relative"
+                :class="player.isLooping
+                  ? 'text-sky-500 bg-sky-500/10'
+                  : (app.theme === 'dark'
+                    ? 'text-gray-300 hover:text-white hover:bg-white/10'
+                    : 'text-gray-600 hover:text-black hover:bg-black/[0.06]')"
                 title="Repeat Current">
-          <Icon name="repeat" />
-          <div v-if="player.isLooping" class="absolute -bottom-2 left-1/2 transform -translate-x-1/2 w-1 h-1 rounded-full bg-brand-500"></div>
+          <Icon name="repeat" :size="15" />
+          <div v-if="player.isLooping"
+               class="absolute -bottom-1.5 left-1/2 transform -translate-x-1/2 w-1 h-1 rounded-full bg-sky-500" />
         </button>
       </div>
 
-    <!-- Right: Volume -->
-      <div class="flex items-center gap-3 justify-self-end">
-        <div
-          class="relative flex h-5 items-center justify-center gap-2 group"
-        >
+      <div class="flex items-center gap-2 justify-self-end">
+        <div class="hidden sm:flex items-center gap-1.5 rounded-full px-2 py-1 border"
+             :class="app.theme === 'dark'
+               ? 'border-white/10 bg-black/20'
+               : 'border-black/10 bg-white/80'">
           <button
             @click="player.toggleMute()"
             class="w-5 h-5 focus:outline-none flex items-center justify-center rounded-full transition-colors"
@@ -153,28 +177,31 @@ watch(() => player.durationMs, (duration) => {
           >
             <Icon :name="volumeIcon()" class="text-sm" />
           </button>
-          <div
-            class="flex items-center h-5 overflow-hidden w-0 opacity-0 pointer-events-none transition-all duration-200 group-hover:w-24 group-hover:opacity-100 group-hover:pointer-events-auto"
+
+          <input
+            type="range"
+            min="0"
+            max="100"
+            :value="player.volume"
+            class="volume-slider w-16 h-5 cursor-pointer"
+            :style="volumeTrackStyle"
+            @input="onVolumeInput"
           >
-            <input
-              type="range"
-              min="0"
-              max="100"
-              :value="player.volume"
-              class="volume-slider w-full h-5 cursor-pointer"
-              :style="volumeTrackStyle"
-              @input="onVolumeInput"
-            >
-          </div>
-          <span
-            class="overflow-hidden w-0 opacity-0 pointer-events-none transition-all duration-200 group-hover:w-[30px] group-hover:opacity-100 group-hover:pointer-events-auto text-[11px] font-mono tabular-nums leading-none text-right"
-            :class="app.theme === 'dark' ? 'text-gray-400' : 'text-gray-500'"
-          >
+
+          <span class="text-[10px] font-mono tabular-nums leading-none text-right min-w-[28px]"
+                :class="app.theme === 'dark' ? 'text-gray-400' : 'text-gray-500'">
             {{ player.volume }}%
           </span>
         </div>
-        <span class="cursor-pointer transition-colors"
-              :class="app.theme === 'dark' ? 'text-gray-400 hover:text-white' : 'text-gray-500 hover:text-black'">1x</span>
+
+        <button type="button"
+                class="h-7 px-2 rounded-full text-[10px] font-semibold tracking-wide border transition-colors"
+                :class="app.theme === 'dark'
+                  ? 'border-white/10 bg-black/20 text-gray-300 hover:text-white hover:bg-white/10'
+                  : 'border-black/10 bg-white/80 text-gray-600 hover:text-black hover:bg-black/[0.06]'"
+                title="Playback speed">
+          1x
+        </button>
       </div>
     </div>
   </div>
@@ -247,15 +274,13 @@ watch(() => player.durationMs, (duration) => {
 .volume-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 0;
-  height: 0;
+  width: 8px;
+  height: 8px;
   border-radius: 999px;
-  background: transparent;
-  border: 0;
-  box-shadow: none;
-  margin-top: 0;
-  opacity: 0;
-  transition: all 0.16s ease;
+  background: #ffffff;
+  border: 1px solid rgba(24, 24, 27, 0.2);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.22);
+  margin-top: -2px;
 }
 
 .volume-slider::-moz-range-track {
@@ -271,34 +296,11 @@ watch(() => player.durationMs, (duration) => {
 }
 
 .volume-slider::-moz-range-thumb {
-  width: 0;
-  height: 0;
+  width: 8px;
+  height: 8px;
   border-radius: 999px;
-  background: transparent;
-  border: 0;
-  box-shadow: none;
-  opacity: 0;
-  transition: all 0.16s ease;
-}
-
-.group:hover .volume-slider::-webkit-slider-thumb,
-.volume-slider:focus-visible::-webkit-slider-thumb {
-  width: 9px;
-  height: 9px;
   background: #ffffff;
   border: 1px solid rgba(24, 24, 27, 0.2);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.22);
-  margin-top: -2px;
-  opacity: 1;
-}
-
-.group:hover .volume-slider::-moz-range-thumb,
-.volume-slider:focus-visible::-moz-range-thumb {
-  width: 9px;
-  height: 9px;
-  background: #ffffff;
-  border: 1px solid rgba(24, 24, 27, 0.2);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.22);
-  opacity: 1;
 }
 </style>

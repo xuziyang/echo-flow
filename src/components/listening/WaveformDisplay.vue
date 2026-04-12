@@ -11,6 +11,7 @@ const canvasRef = ref<HTMLCanvasElement | null>(null)
 const progress = computed(() =>
   player.durationMs > 0 ? player.positionMs / player.durationMs : 0
 )
+const progressPercent = computed(() => `${Math.round(progress.value * 100)}%`)
 
 const colors = computed(() => ({
   activeColor: app.theme === 'dark' ? '#5e93c4' : '#4f88b8',
@@ -33,8 +34,18 @@ useWaveform(canvasRef, {
 </script>
 
 <template>
-  <div class="h-24 relative rounded-md overflow-hidden border"
-       :class="app.theme === 'dark' ? 'border-dark-border' : 'border-gray-300'">
-      <canvas ref="canvasRef" class="absolute inset-0 w-full h-full" />
+  <div class="h-24 relative rounded-xl overflow-hidden border"
+       :class="app.theme === 'dark'
+         ? 'border-white/10 bg-gradient-to-b from-[#1d232a] to-[#151a20]'
+         : 'border-black/10 bg-gradient-to-b from-[#f7fbff] to-[#ecf1f6]'">
+    <canvas ref="canvasRef" class="absolute inset-0 w-full h-full" />
+
+    <div class="pointer-events-none absolute inset-0 bg-gradient-to-r from-transparent via-white/[0.02] to-transparent" />
+
+    <div class="pointer-events-none absolute inset-x-3 top-1.5 flex items-center justify-between text-[9px] font-medium tracking-wide"
+         :class="app.theme === 'dark' ? 'text-gray-400/90' : 'text-gray-600/90'">
+      <span>Waveform</span>
+      <span>{{ progressPercent }}</span>
+    </div>
   </div>
 </template>

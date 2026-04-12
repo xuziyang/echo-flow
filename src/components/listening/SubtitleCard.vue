@@ -52,7 +52,7 @@ const badgeClass = (status: string) => {
 </script>
 
 <template>
-  <div @click="isEditing ? transcript.startEditing(index) : player.setCurrentIndex(index)"
+  <div @click="isEditing ? transcript.startEditing(index) : player.seekTo(item.start_ms ?? 0)"
        class="px-3 py-2.5 rounded-lg transition-all duration-300 border border-transparent"
        :class="cardClass">
 

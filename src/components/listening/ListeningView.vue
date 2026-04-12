@@ -1,11 +1,25 @@
 <script setup lang="ts">
+import { onMounted, onUnmounted } from 'vue'
 import { useAppStore } from '../../stores/useAppStore'
+import { usePlayerStore } from '../../stores/usePlayerStore'
 import PlayerCard from './PlayerCard.vue'
 import SubtitleToolbar from './SubtitleToolbar.vue'
 import SubtitleList from './SubtitleList.vue'
 import Icon from '../Icon.vue'
 
 const app = useAppStore()
+const player = usePlayerStore()
+
+function onKeydown(e: KeyboardEvent) {
+  if (e.code !== 'Space') return
+  const tag = (e.target as HTMLElement).tagName
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+  e.preventDefault()
+  player.togglePlay()
+}
+
+onMounted(() => window.addEventListener('keydown', onKeydown))
+onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 </script>
 
 <template>

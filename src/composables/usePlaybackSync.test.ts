@@ -9,39 +9,54 @@ describe('usePlaybackSync', () => {
     vi.useFakeTimers()
   })
 
-  it('polls backend state and stops when playback ends', async () => {
+  it('listens for playback-state events and calibrates on play', async () => {
     const player = usePlayerStore()
     player.waveformSamples = [0.7, 0.6]
     player.positionMs = 1000
     player.durationMs = 5000
     player.isPlaying = true
 
-    const invokeMock = vi.fn<(...args: unknown[]) => Promise<PlaybackState>>().mockResolvedValue({
-      path: '/tmp/audio.mp3',
-      is_playing: false,
-      position_ms: 2200,
-      duration_ms: 5000,
-      volume: 1,
-      waveform_samples: [0.1, 0.2],
+    const unlistenFn = vi.fn()
+    let registeredHandler: ((event: { payload: PlaybackState }) => void) | null = null
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const listenFn: any = vi.fn(async (
+      _event: string,
+      handler: (event: { payload: PlaybackState }) => void,
+    ) => {
+      registeredHandler = handler
+      return unlistenFn
     })
 
     const controller = createPlaybackSyncController(player, {
-      invokeFn: invokeMock as never,
+      listenFn,
       nowMs: () => 1000,
       requestAnimationFrameFn: vi.fn(() => 1),
       cancelAnimationFrameFn: vi.fn(),
     })
 
     controller.handlePlaybackChange(true)
-    await vi.advanceTimersByTimeAsync(200)
 
-    expect(invokeMock).toHaveBeenCalledWith('get_playback_state')
+    expect(listenFn).toHaveBeenCalledWith('playback-state', expect.any(Function))
+
+    // Simulate an event arriving
+    const stateEvent: { payload: PlaybackState } = {
+      payload: {
+        path: '/tmp/audio.mp3',
+        is_playing: false,
+        position_ms: 2200,
+        duration_ms: 5000,
+        volume: 1,
+        waveform_samples: [0.1, 0.2],
+      },
+    }
+
+    if (registeredHandler) {
+      ;(registeredHandler as (e: { payload: PlaybackState }) => void)(stateEvent)
+    }
+
     expect(player.positionMs).toBe(2200)
     expect(player.isPlaying).toBe(false)
     expect(player.waveformSamples).toEqual([0.7, 0.6])
-
-    await vi.advanceTimersByTimeAsync(400)
-    expect(invokeMock).toHaveBeenCalledTimes(1)
   })
 
   it('extrapolates position while playing and stops on dispose', () => {
@@ -59,12 +74,10 @@ describe('usePlaybackSync', () => {
     const cancelAnimationFrameFn = vi.fn()
 
     const controller = createPlaybackSyncController(player, {
-      invokeFn: vi.fn() as never,
+      listenFn: vi.fn() as any,
       nowMs: () => now,
       requestAnimationFrameFn,
       cancelAnimationFrameFn,
-      setIntervalFn: vi.fn(() => 1) as never,
-      clearIntervalFn: vi.fn() as never,
     })
 
     controller.handlePlaybackChange(true)
@@ -77,11 +90,11 @@ describe('usePlaybackSync', () => {
 
     expect(player.positionMs).toBe(1350)
 
-    controller.stopPolling()
+    controller.stop()
     expect(cancelAnimationFrameFn).toHaveBeenCalledWith(11)
   })
 
-  it('skips extrapolation while seeking', () => {
+  it('skips extrapolation while seeking and recalibrates after', () => {
     const player = usePlayerStore()
     player.positionMs = 1000
     player.durationMs = 5000
@@ -95,12 +108,10 @@ describe('usePlaybackSync', () => {
     })
 
     const controller = createPlaybackSyncController(player, {
-      invokeFn: vi.fn() as never,
+      listenFn: vi.fn() as any,
       nowMs: () => now,
       requestAnimationFrameFn,
       cancelAnimationFrameFn: vi.fn(),
-      setIntervalFn: vi.fn(() => 1) as never,
-      clearIntervalFn: vi.fn() as never,
     })
 
     controller.handlePlaybackChange(true)

@@ -4,6 +4,7 @@ use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink, Source};
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{BufReader, Write};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use symphonia::core::formats::FormatOptions;
@@ -11,6 +12,7 @@ use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 use srt::{Srt, SubTitle, Time};
+use tauri::Emitter;
 
 /// 音频文件元数据
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -376,6 +378,49 @@ thread_local! {
 }
 
 // ---------------------------------------------------------------------------
+// 位置推送线程
+// ---------------------------------------------------------------------------
+
+static POSITION_EMITTING: AtomicBool = AtomicBool::new(false);
+
+fn start_position_emitting(app: tauri::AppHandle) {
+    if POSITION_EMITTING.load(Ordering::Relaxed) {
+        return;
+    }
+    POSITION_EMITTING.store(true, Ordering::Relaxed);
+
+    std::thread::spawn(move || {
+        while POSITION_EMITTING.load(Ordering::Relaxed) {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            if !POSITION_EMITTING.load(Ordering::Relaxed) {
+                break;
+            }
+            let app2 = app.clone();
+            let _ = app.run_on_main_thread(move || {
+                PLAYER.with(|p| {
+                    let state = p.borrow().get_state();
+                    let _ = app2.emit("playback-state", &state);
+                    if !state.is_playing {
+                        POSITION_EMITTING.store(false, Ordering::Relaxed);
+                    }
+                });
+            });
+        }
+    });
+}
+
+fn stop_position_emitting() {
+    POSITION_EMITTING.store(false, Ordering::Relaxed);
+}
+
+fn emit_playback_state(app: &tauri::AppHandle) {
+    PLAYER.with(|p| {
+        let state = p.borrow().get_state();
+        let _ = app.emit("playback-state", &state);
+    });
+}
+
+// ---------------------------------------------------------------------------
 // Tauri IPC 命令
 // ---------------------------------------------------------------------------
 
@@ -445,35 +490,49 @@ pub fn load_audio(path: String) -> Result<PlaybackState, String> {
 
 /// 开始播放音频
 #[tauri::command]
-pub fn start_playback(path: String) -> Result<PlaybackState, String> {
+pub fn start_playback(app: tauri::AppHandle, path: String) -> Result<PlaybackState, String> {
     PLAYER.with(|p| {
         let mut player = p.borrow_mut();
         player.start(&path)
-    })
+    })?;
+    emit_playback_state(&app);
+    start_position_emitting(app);
+    PLAYER.with(|p| Ok(p.borrow().get_state()))
 }
 
 /// 暂停播放
 #[tauri::command]
-pub fn pause_playback() -> PlaybackState {
-    PLAYER.with(|p| p.borrow_mut().pause())
+pub fn pause_playback(app: tauri::AppHandle) -> PlaybackState {
+    stop_position_emitting();
+    PLAYER.with(|p| p.borrow_mut().pause());
+    emit_playback_state(&app);
+    PLAYER.with(|p| p.borrow().get_state())
 }
 
 /// 继续播放
 #[tauri::command]
-pub fn resume_playback() -> Result<PlaybackState, String> {
-    PLAYER.with(|p| p.borrow_mut().resume())
+pub fn resume_playback(app: tauri::AppHandle) -> Result<PlaybackState, String> {
+    PLAYER.with(|p| p.borrow_mut().resume())?;
+    emit_playback_state(&app);
+    start_position_emitting(app);
+    PLAYER.with(|p| Ok(p.borrow().get_state()))
 }
 
 /// 停止播放
 #[tauri::command]
-pub fn stop_playback() -> PlaybackState {
-    PLAYER.with(|p| p.borrow_mut().stop())
+pub fn stop_playback(app: tauri::AppHandle) -> PlaybackState {
+    stop_position_emitting();
+    PLAYER.with(|p| p.borrow_mut().stop());
+    emit_playback_state(&app);
+    PLAYER.with(|p| p.borrow().get_state())
 }
 
 /// 跳转播放位置
 #[tauri::command]
-pub fn seek_playback(position_ms: u64) -> Result<PlaybackState, String> {
-    PLAYER.with(|p| p.borrow_mut().seek(position_ms))
+pub fn seek_playback(app: tauri::AppHandle, position_ms: u64) -> Result<PlaybackState, String> {
+    PLAYER.with(|p| p.borrow_mut().seek(position_ms))?;
+    emit_playback_state(&app);
+    PLAYER.with(|p| Ok(p.borrow().get_state()))
 }
 
 /// 设置音量

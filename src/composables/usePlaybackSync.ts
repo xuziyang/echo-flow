@@ -1,18 +1,16 @@
 import { onBeforeUnmount, watch } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
 import { usePlayerStore, type PlaybackState } from '../stores/usePlayerStore'
 
-const PLAYBACK_POLL_INTERVAL_MS = 200
-
-type InvokeFn = typeof invoke
+type UnlistenFn = () => void
+type ListenFn = typeof listen
+type EventPayload = PlaybackState
 
 interface PlaybackSyncDeps {
-  invokeFn?: InvokeFn
+  listenFn?: ListenFn
   nowMs?: () => number
   requestAnimationFrameFn?: (callback: FrameRequestCallback) => number
   cancelAnimationFrameFn?: (handle: number) => void
-  setIntervalFn?: typeof setInterval
-  clearIntervalFn?: typeof clearInterval
 }
 
 function defaultNowMs() {
@@ -35,18 +33,16 @@ function defaultCancelAnimationFrame(handle: number) {
 export function createPlaybackSyncController(
   player = usePlayerStore(),
   {
-    invokeFn = invoke,
+    listenFn = listen,
     nowMs = defaultNowMs,
     requestAnimationFrameFn = defaultRequestAnimationFrame,
     cancelAnimationFrameFn = defaultCancelAnimationFrame,
-    setIntervalFn = setInterval,
-    clearIntervalFn = clearInterval,
   }: PlaybackSyncDeps = {},
 ) {
-  let pollTimer: ReturnType<typeof setInterval> | null = null
   let rafId: number | null = null
   let lastSyncPositionMs = 0
   let lastSyncPerfMs = 0
+  let unlisten: UnlistenFn | null = null
 
   function stopPositionExtrapolation() {
     if (rafId !== null) {
@@ -55,18 +51,22 @@ export function createPlaybackSyncController(
     }
   }
 
-  function stopPolling() {
-    if (pollTimer) {
-      clearIntervalFn(pollTimer)
-      pollTimer = null
+  function stopEventListener() {
+    if (unlisten) {
+      unlisten()
+      unlisten = null
     }
-    stopPositionExtrapolation()
   }
 
-  function calibrateFromState(state: PlaybackState, options?: { includeWaveform?: boolean }) {
+  function stop() {
+    stopPositionExtrapolation()
+    stopEventListener()
+  }
+
+  function calibrateFromState(state: PlaybackState) {
     lastSyncPositionMs = state.position_ms
     lastSyncPerfMs = nowMs()
-    player.applyPlaybackState(state, options)
+    player.applyPlaybackState(state, { includeWaveform: false })
   }
 
   function startPositionExtrapolation() {
@@ -92,37 +92,34 @@ export function createPlaybackSyncController(
     rafId = requestAnimationFrameFn(tick)
   }
 
-  function startPolling() {
-    stopPolling()
-    pollTimer = setIntervalFn(async () => {
-      try {
-        const state = await invokeFn<PlaybackState>('get_playback_state')
-        calibrateFromState(state, { includeWaveform: false })
+  async function startEventListener() {
+    stopEventListener()
+    unlisten = await listenFn<EventPayload>('playback-state', (event) => {
+      calibrateFromState(event.payload)
 
-        if (!state.is_playing) {
-          stopPolling()
-        }
-      } catch {
-        stopPolling()
+      if (event.payload.is_playing) {
+        startPositionExtrapolation()
+      } else {
+        stopPositionExtrapolation()
       }
-    }, PLAYBACK_POLL_INTERVAL_MS)
+    })
   }
 
   function handlePlaybackChange(isPlaying: boolean) {
     if (isPlaying) {
       lastSyncPositionMs = player.positionMs
       lastSyncPerfMs = nowMs()
-      startPolling()
+      startEventListener()
       startPositionExtrapolation()
     } else {
-      stopPolling()
+      stop()
     }
   }
 
   return {
     calibrateFromState,
     handlePlaybackChange,
-    stopPolling,
+    stop,
     recalibrateAfterSeek,
   }
 
@@ -154,6 +151,6 @@ export function usePlaybackSync() {
   )
 
   onBeforeUnmount(() => {
-    controller.stopPolling()
+    controller.stop()
   })
 }

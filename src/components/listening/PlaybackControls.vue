@@ -117,14 +117,6 @@ watch(() => player.durationMs, (duration) => {
     </div>
 
     <div class="grid grid-cols-3 items-center">
-    <!-- Left: Rewind -->
-      <div class="justify-self-start">
-        <button class="text-sm transition-colors"
-                :class="app.theme === 'dark' ? 'text-gray-500 hover:text-white' : 'text-gray-400 hover:text-black'">
-          <Icon name="rotate-left" class="mr-1" /> 5s
-        </button>
-      </div>
-
     <!-- Center: Controls -->
       <div class="flex items-center gap-6 justify-self-center">
         <button @click="player.prevSentence()" class="text-lg transition-colors"

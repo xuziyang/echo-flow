@@ -11,7 +11,6 @@ use symphonia::core::formats::FormatOptions;
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
-use srt::{Srt, SubTitle, Time};
 use tauri::Emitter;
 
 /// 音频文件元数据
@@ -668,45 +667,79 @@ pub struct SubtitleEntry {
     pub end_ms: Option<u64>,
 }
 
-/// 加载 SRT 字幕文件
+/// 解析 SRT 时间字符串 "HH:MM:SS,mmm"（注意逗号不是点）
+fn parse_srt_time(s: &str) -> Option<u64> {
+    let s = s.trim();
+    // 去掉可能的空格，格式如 "00:00:01,000"
+    let parts: Vec<&str> = s.split(',').collect();
+    if parts.len() != 2 {
+        return None;
+    }
+    let (h, m, sec) = {
+        let t: Vec<&str> = parts[0].split(':').collect();
+        if t.len() != 3 {
+            return None;
+        }
+        let h: u64 = t[0].parse().ok()?;
+        let m: u64 = t[1].parse().ok()?;
+        let sec: u64 = t[2].parse().ok()?;
+        (h, m, sec)
+    };
+    let ms: u64 = parts[1].parse().ok()?;
+    Some((h * 3600 + m * 60 + sec) * 1000 + ms)
+}
+
+/// 加载 SRT 字幕文件（手动解析，不依赖 srt crate）
 #[tauri::command]
 pub fn load_subtitle_file(path: String) -> Result<Vec<SubtitleEntry>, String> {
     let content = std::fs::read(&path)
         .map_err(|e| format!("无法读取字幕文件: {}", e))?;
+    let text = String::from_utf8_lossy(&content);
 
-    let srt_data: Srt = srt::parser::parse_srt_from_slice(&content)
-        .map_err(|e| format!("字幕解析失败: {}", e))?;
-
-    let entries: Vec<SubtitleEntry> = srt_data
-        .subs
-        .into_iter()
-        .enumerate()
-        .map(|(idx, sub): (usize, SubTitle)| {
-            SubtitleEntry {
-                id: (idx + 1) as i64,
-                en: sub.text.trim().to_string(),
-                start_ms: Some(srt_time_to_ms(&sub.start_time)),
-                end_ms: Some(srt_time_to_ms(&sub.end_time)),
-            }
-        })
-        .collect();
+    let mut entries: Vec<SubtitleEntry> = Vec::new();
+    // SRT 块由空行分隔：索引行 + 时间行 + 文本行（可多行）
+    let blocks: Vec<&str> = text.split("\n\n").collect();
+    for (idx, block) in blocks.iter().enumerate() {
+        let block = block.trim();
+        if block.is_empty() {
+            continue;
+        }
+        let lines: Vec<&str> = block.split('\n').collect();
+        if lines.len() < 2 {
+            continue;
+        }
+        // 第二行是时间：`00:00:01,000 --> 00:00:04,000`
+        let timing_line = lines[1];
+        let timing_parts: Vec<&str> = timing_line.split("-->").collect();
+        if timing_parts.len() != 2 {
+            continue;
+        }
+        let start_ms = parse_srt_time(timing_parts[0]).unwrap_or(idx as u64 * 5000);
+        let end_ms = parse_srt_time(timing_parts[1]).unwrap_or(start_ms + 3000);
+        // 文本是第 3 行起所有内容
+        let text = lines[2..].join("\n").trim().to_string();
+        if text.is_empty() {
+            continue;
+        }
+        entries.push(SubtitleEntry {
+            id: (idx + 1) as i64,
+            en: text,
+            start_ms: Some(start_ms),
+            end_ms: Some(end_ms),
+        });
+    }
 
     Ok(entries)
 }
 
-fn srt_time_to_ms(time: &Time) -> u64 {
-    ((time.hours as u64 * 3600 + time.minutes as u64 * 60 + time.seconds as u64) * 1000)
-        + time.milliseconds as u64
-}
-
-/// 将毫秒转换为 SRT Time
-fn ms_to_srt_time(ms: u64) -> Time {
+/// 将毫秒转换为 SRT 时间字符串 "HH:MM:SS,mmm"
+fn ms_to_srt_time_str(ms: u64) -> String {
     let total_secs = ms / 1000;
-    let milliseconds = (ms % 1000) as u16;
-    let seconds = (total_secs % 60) as u8;
-    let minutes = ((total_secs / 60) % 60) as u8;
-    let hours = (total_secs / 3600) as u8;
-    Time { hours, minutes, seconds, milliseconds }
+    let milliseconds = ms % 1000;
+    let seconds = total_secs % 60;
+    let minutes = (total_secs / 60) % 60;
+    let hours = total_secs / 3600;
+    format!("{:02}:{:02}:{:02},{:03}", hours, minutes, seconds, milliseconds)
 }
 
 /// 保存字幕为 SRT 文件
@@ -718,8 +751,8 @@ pub fn save_subtitle_file(path: String, entries: Vec<SubtitleEntry>) -> Result<(
         let fallback_end_ms = idx as u64 * 5000 + 5000;
         let start_ms = entry.start_ms.unwrap_or(fallback_start_ms);
         let end_ms = entry.end_ms.unwrap_or(fallback_end_ms.max(start_ms + 500));
-        let start = ms_to_srt_time(start_ms);
-        let end = ms_to_srt_time(end_ms);
+        let start = ms_to_srt_time_str(start_ms);
+        let end = ms_to_srt_time_str(end_ms);
         let text = entry.en.clone();
         output.push_str(&format!("{}\n{} --> {}\n{}\n\n", idx + 1, start, end, text));
     }
@@ -747,11 +780,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_ms_to_srt_time() {
-        let t = ms_to_srt_time(3723123); // 1h 2m 3s 123ms
-        assert_eq!(t.hours, 1);
-        assert_eq!(t.minutes, 2);
-        assert_eq!(t.seconds, 3);
-        assert_eq!(t.milliseconds, 123);
+    fn test_ms_to_srt_time_str() {
+        let t = ms_to_srt_time_str(3723123); // 1h 2m 3s 123ms
+        assert_eq!(t, "01:02:03,123");
     }
 }

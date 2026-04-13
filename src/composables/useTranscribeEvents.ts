@@ -28,6 +28,12 @@ export function createTranscribeEventBindings(
       })
 
       const onDone = await listenFn<TranscribeDoneEvent>('transcribe-done', (event) => {
+        console.info('[transcribe-done] event received', {
+          jobId: event.payload.job_id,
+          audioPath: event.payload.audio_path,
+          segments: event.payload.segments.length,
+          firstSegment: event.payload.segments[0]?.en ?? null,
+        })
         transcript.applyTranscribeDone(event.payload)
       })
 

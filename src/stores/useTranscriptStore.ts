@@ -170,6 +170,7 @@ export const useTranscriptStore = defineStore('transcript', () => {
   /** 开始转写音频文件（自动调用） */
   async function startTranscribe(audioPath: string, modelPath?: string): Promise<void> {
     const jobId = nextTranscribeJobId++
+    console.info('[transcribe] start', { jobId, audioPath })
     currentAudioPath.value = audioPath
     activeTranscribeJobId.value = jobId
     isTranscribing.value = true
@@ -203,7 +204,16 @@ export const useTranscriptStore = defineStore('transcript', () => {
   }
 
   function applyTranscribeDone(event: TranscribeDoneEvent) {
-    if (!isCurrentTranscribeTarget(event.job_id, event.audio_path)) return
+    const isCurrent = isCurrentTranscribeTarget(event.job_id, event.audio_path)
+    console.info('[transcribe] apply done', {
+      jobId: event.job_id,
+      audioPath: event.audio_path,
+      isCurrent,
+      incomingSegments: event.segments.length,
+      currentAudioPath: currentAudioPath.value,
+      activeTranscribeJobId: activeTranscribeJobId.value,
+    })
+    if (!isCurrent) return
 
     sentences.value = event.segments.map((seg, idx) => ({
       id: seg.id ?? idx + 1,
@@ -214,6 +224,10 @@ export const useTranscriptStore = defineStore('transcript', () => {
       start_ms: seg.start_ms,
       end_ms: seg.end_ms,
     }))
+    console.info('[transcribe] sentences updated', {
+      sentences: sentences.value.length,
+      firstSentence: sentences.value[0]?.en ?? null,
+    })
     sentenceIdCounter.value = sentences.value.length + 1
     isTranscribing.value = false
     transcribeProgress.value = 100

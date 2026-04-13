@@ -31,6 +31,5 @@ srt = "0.1"
 log = "0.4"
 env_logger = "0.11"
 whisper-rs = "0.16"
-nnsplit = { version = "0.5", features = ["tract-backend"] }
 sentencex = "0.1"
 

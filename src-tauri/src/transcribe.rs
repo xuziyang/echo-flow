@@ -1,4 +1,4 @@
-// src-tauri/src/transcribe.rs — Whisper transcription + nnn-split sentence boundary detection
+// src-tauri/src/transcribe.rs — Whisper transcription + sentencex sentence boundary detection
 use log::info;
 use serde::{Deserialize, Serialize};
 use std::cmp::{max, min};

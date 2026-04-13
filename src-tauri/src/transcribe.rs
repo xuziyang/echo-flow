@@ -2,6 +2,8 @@
 use log::info;
 use serde::{Deserialize, Serialize};
 use std::cmp::max;
+use std::fs::File;
+use std::io::Write;
 use std::path::Path;
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -61,6 +63,86 @@ struct WhisperRawSegment {
     end_ms: i64,
     /// word-level tokens extracted from whisper
     tokens: Vec<WordToken>,
+}
+
+fn ms_to_srt_time_str(ms: u64) -> String {
+    let total_secs = ms / 1000;
+    let milliseconds = ms % 1000;
+    let seconds = total_secs % 60;
+    let minutes = (total_secs / 60) % 60;
+    let hours = total_secs / 3600;
+    format!("{:02}:{:02}:{:02},{:03}", hours, minutes, seconds, milliseconds)
+}
+
+fn write_srt_file(path: &Path, segments: &[TranscriptSegment]) -> Result<(), String> {
+    let mut output = String::new();
+    for (idx, entry) in segments.iter().enumerate() {
+        let fallback_start_ms = idx as u64 * 5000 + 1000;
+        let fallback_end_ms = idx as u64 * 5000 + 5000;
+        let start_ms = if entry.start_ms >= 0 {
+            entry.start_ms as u64
+        } else {
+            fallback_start_ms
+        };
+        let end_ms = if entry.end_ms >= entry.start_ms && entry.end_ms >= 0 {
+            entry.end_ms as u64
+        } else {
+            fallback_end_ms.max(start_ms + 500)
+        };
+
+        output.push_str(&format!(
+            "{}\n{} --> {}\n{}\n\n",
+            idx + 1,
+            ms_to_srt_time_str(start_ms),
+            ms_to_srt_time_str(end_ms),
+            entry.en
+        ));
+    }
+
+    let mut file = File::create(path)
+        .map_err(|e| format!("无法创建字幕文件 {}: {}", path.display(), e))?;
+    file.write_all(output.as_bytes())
+        .map_err(|e| format!("写入字幕文件 {} 失败: {}", path.display(), e))?;
+    Ok(())
+}
+
+fn raw_segments_to_transcript_segments(whisper_segments: &[WhisperRawSegment]) -> Vec<TranscriptSegment> {
+    build_segments_from_raw_segments(whisper_segments)
+}
+
+fn build_transcript_output_paths(audio_path: &str) -> (std::path::PathBuf, std::path::PathBuf) {
+    let source = Path::new(audio_path);
+    let parent = source.parent().unwrap_or_else(|| Path::new("."));
+    let stem = source
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .filter(|stem| !stem.is_empty())
+        .unwrap_or("transcript");
+
+    (
+        parent.join(format!("{}.whisper.raw.srt", stem)),
+        parent.join(format!("{}.whisper.segmented.srt", stem)),
+    )
+}
+
+fn persist_transcripts(
+    audio_path: &str,
+    whisper_segments: &[WhisperRawSegment],
+    segmented: &[TranscriptSegment],
+) -> Result<(), String> {
+    let raw_segments = raw_segments_to_transcript_segments(whisper_segments);
+    let (raw_path, segmented_path) = build_transcript_output_paths(audio_path);
+
+    write_srt_file(&raw_path, &raw_segments)?;
+    write_srt_file(&segmented_path, segmented)?;
+
+    eprintln!(
+        "Saved transcripts: raw={}, segmented={}",
+        raw_path.display(),
+        segmented_path.display()
+    );
+
+    Ok(())
 }
 
 fn normalize_whitespace(text: &str) -> String {
@@ -478,6 +560,9 @@ pub fn transcribe_audio(
         match result {
             Ok(whisper_segments) => {
                 let segments = build_transcript_segments_from_whisper(&whisper_segments);
+                if let Err(error) = persist_transcripts(&audio_path_clone, &whisper_segments, &segments) {
+                    eprintln!("Persist transcripts failed: {}", error);
+                }
                 eprintln!(
                     "Emitting transcribe-done: job_id={}, audio_path={}, whisper_segments={}, transcript_segments={}",
                     resolved_job_id,

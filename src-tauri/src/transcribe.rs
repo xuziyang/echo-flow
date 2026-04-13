@@ -1,6 +1,5 @@
 // src-tauri/src/transcribe.rs — Whisper transcription + nnn-split sentence boundary detection
 use log::info;
-use nnsplit::NNSplit;
 use serde::{Deserialize, Serialize};
 use std::cmp::{max, min};
 use std::path::Path;
@@ -452,39 +451,10 @@ fn run_whisper(
     Ok(segments)
 }
 
-/// 使用 nnn-split 做句子边界检测
+/// 使用 sentencex 做句子边界检测（基于语言感知规则，速度快）
 fn split_sentences(text: &str) -> Vec<String> {
-    // 模型路径：优先使用本地模型文件
-    let model_home = std::env::var("HOME").unwrap_or_default();
-    let model_paths = [
-        format!("{}/.cache/nnsplit/model.onnx", model_home),
-        "./models/nnsplit.onnx".to_string(),
-        "./nnsplit.onnx".to_string(),
-    ];
-    let model_path = model_paths.iter()
-        .find(|p| Path::new(p).exists())
-        .cloned();
-
-    match model_path {
-        Some(path) => {
-            match NNSplit::new(&path, Default::default()) {
-                Ok(splitter) => {
-                    let texts: Vec<&str> = vec![text];
-                    let splits = splitter.split(&texts);
-                    splits[0].iter()
-                        .map(|s| s.text().to_string())
-                        .collect()
-                }
-                Err(_) => fallback_split(text),
-            }
-        }
-        None => fallback_split(text),
-    }
-}
-
-/// 简单 fallback 断句：按标点符号分割
-fn fallback_split(text: &str) -> Vec<String> {
-    text.split(|c| c == '.' || c == '?' || c == '!' || c == '\n')
+    sentencex::segment("en", text)
+        .into_iter()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect()

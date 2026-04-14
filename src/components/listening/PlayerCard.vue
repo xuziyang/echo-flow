@@ -2,7 +2,6 @@
 import { computed } from 'vue'
 import { useAppStore } from '../../stores/useAppStore'
 import { usePlayerStore } from '../../stores/usePlayerStore'
-import WaveformDisplay from './WaveformDisplay.vue'
 import PlaybackControls from './PlaybackControls.vue'
 
 const app = useAppStore()
@@ -52,9 +51,6 @@ const statusLabel = computed(() => {
       </span>
     </div>
 
-    <div class="relative z-10">
-      <WaveformDisplay />
-    </div>
     <div class="relative z-10">
       <PlaybackControls />
     </div>

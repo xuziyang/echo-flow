@@ -765,12 +765,52 @@ pub fn save_subtitle_file(path: String, entries: Vec<SubtitleEntry>) -> Result<(
     Ok(())
 }
 
-/// 保存录音数据到文件
+/// 保存录音数据到 WAV 文件
 #[tauri::command]
-pub fn save_recording(path: String, data: Vec<u8>) -> Result<(), String> {
+pub fn save_recording(path: String, samples: Vec<f32>) -> Result<(), String> {
+    let sample_rate = 44100u32;
+    let num_channels = 1u16;
+    let bits_per_sample = 16u16;
+    let bytes_per_sample = bits_per_sample / 8;
+    let block_align = num_channels * bytes_per_sample;
+    let data_size = samples.len() as u32 * bytes_per_sample as u32;
+    let buffer_size = 44 + data_size;
+
+    let mut buffer = Vec::with_capacity(buffer_size as usize);
+
+    // RIFF header
+    buffer.extend_from_slice(b"RIFF");
+    buffer.extend_from_slice(&(buffer_size - 8).to_le_bytes());
+    buffer.extend_from_slice(b"WAVE");
+
+    // fmt chunk
+    buffer.extend_from_slice(b"fmt ");
+    buffer.extend_from_slice(&16u32.to_le_bytes()); // chunk size
+    buffer.extend_from_slice(&1u16.to_le_bytes()); // audio format (PCM)
+    buffer.extend_from_slice(&num_channels.to_le_bytes());
+    buffer.extend_from_slice(&sample_rate.to_le_bytes());
+    buffer.extend_from_slice(&(sample_rate * block_align as u32).to_le_bytes()); // byte rate
+    buffer.extend_from_slice(&block_align.to_le_bytes());
+    buffer.extend_from_slice(&bits_per_sample.to_le_bytes());
+
+    // data chunk
+    buffer.extend_from_slice(b"data");
+    buffer.extend_from_slice(&data_size.to_le_bytes());
+
+    // Audio data
+    for sample in &samples {
+        let clamped = sample.max(-1.0).min(1.0);
+        let int16 = if clamped < 0.0 {
+            (clamped * 0x8000 as f32) as i16
+        } else {
+            (clamped * 0x7fff as f32) as i16
+        };
+        buffer.extend_from_slice(&(int16 as i16).to_le_bytes());
+    }
+
     let mut file = File::create(&path)
         .map_err(|e| format!("无法创建录音文件: {}", e))?;
-    file.write_all(&data)
+    file.write_all(&buffer)
         .map_err(|e| format!("写入录音文件失败: {}", e))?;
     Ok(())
 }

@@ -1,5 +1,6 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 mod audio;
+mod record;
 mod transcribe;
 
 use log::info;
@@ -34,6 +35,10 @@ pub fn run() {
             audio::get_playback_state,
             audio::save_recording,
             transcribe::transcribe_audio,
+            record::is_recording,
+            record::start_recording,
+            record::stop_recording,
+            record::get_recording_waveform,
         ])
         .setup(|app| {
             info!("echo-flow starting...");

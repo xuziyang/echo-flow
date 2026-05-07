@@ -6,6 +6,10 @@ import { useAppStore } from './useAppStore'
 import { usePlayerStore } from './usePlayerStore'
 import { useTranscriptStore } from './useTranscriptStore'
 
+interface RecordingResult {
+  samples: number[]
+}
+
 export const useRecordingStore = defineStore('recording', () => {
   const app = useAppStore()
   const player = usePlayerStore()
@@ -13,22 +17,27 @@ export const useRecordingStore = defineStore('recording', () => {
   const isRecording = ref(false)
   const userAudioUrl = ref<string | null>(null)
   const userWaveformSamples = ref<number[]>([])
-  const recordingBlob = ref<Blob | null>(null)
+  const recordingSamples = ref<number[]>([])
   const activePlaybackMode = ref<'recording' | 'comparison' | null>(null)
 
-  let mediaRecorder: MediaRecorder | null = null
-  let recordingStream: MediaStream | null = null
-  let audioChunks: Blob[] = []
-  let activeAudio: HTMLAudioElement | null = null
+  let htmlAudio: HTMLAudioElement | null = null
   let playbackToken = 0
+  let audioContext: AudioContext | null = null
+  let audioBufferSource: AudioBufferSourceNode | null = null
 
   function clearActiveAudio() {
-    if (!activeAudio) return
-    activeAudio.pause()
-    activeAudio.currentTime = 0
-    activeAudio.onended = null
-    activeAudio.onerror = null
-    activeAudio = null
+    if (audioBufferSource) {
+      audioBufferSource.stop()
+      audioBufferSource = null
+    }
+    if (audioContext) {
+      audioContext.close().catch(() => {})
+      audioContext = null
+    }
+    if (htmlAudio) {
+      htmlAudio.pause()
+      htmlAudio = null
+    }
   }
 
   function stopPlayback() {
@@ -44,15 +53,9 @@ export const useRecordingStore = defineStore('recording', () => {
     userAudioUrl.value = null
   }
 
-  function stopRecordingStream() {
-    if (!recordingStream) return
-    recordingStream.getTracks().forEach(track => track.stop())
-    recordingStream = null
-  }
-
   async function toggleRecording() {
     if (isRecording.value) {
-      stopRecording()
+      await stopRecording()
     } else {
       await startRecording()
     }
@@ -62,48 +65,123 @@ export const useRecordingStore = defineStore('recording', () => {
     try {
       stopPlayback()
       await player.clearSentenceSegment({ pausePlayback: true })
-      stopRecordingStream()
-      recordingStream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      mediaRecorder = new MediaRecorder(recordingStream, { mimeType: 'audio/webm' })
-      audioChunks = []
-
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunks.push(event.data)
-        }
-      }
-
-      mediaRecorder.onstop = async () => {
-        const blob = new Blob(audioChunks, { type: 'audio/webm' })
-        recordingBlob.value = blob
-        revokeUserAudioUrl()
-        userAudioUrl.value = URL.createObjectURL(blob)
-        stopRecordingStream()
-        // 提取波形数据（简化：读取 WebM 音频的波形）
-        userWaveformSamples.value = await extractWaveformFromBlob(blob)
-        mediaRecorder = null
-      }
-
-      mediaRecorder.start()
+      await invoke('start_recording')
       isRecording.value = true
     } catch (err) {
-      stopRecordingStream()
       app.showSubtitleToast(typeof err === 'string' ? err : String(err), 'error')
     }
   }
 
-  function stopRecording() {
-    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-      mediaRecorder.stop()
-    } else {
-      stopRecordingStream()
-      mediaRecorder = null
+  async function stopRecording() {
+    if (!isRecording.value) return
+
+    try {
+      const result = (await invoke('stop_recording')) as RecordingResult
+      recordingSamples.value = result.samples
+
+      // Convert samples to audio URL for playback
+      if (recordingSamples.value.length > 0) {
+        const audioData = createWavFromSamples(recordingSamples.value)
+        revokeUserAudioUrl()
+        const blob = new Blob([audioData], { type: 'audio/wav' })
+        userAudioUrl.value = URL.createObjectURL(blob)
+
+        // Get waveform from samples
+        userWaveformSamples.value = extractWaveformFromSamples(recordingSamples.value, 200)
+      }
+    } catch (err) {
+      app.showSubtitleToast(typeof err === 'string' ? err : String(err), 'error')
+    } finally {
+      isRecording.value = false
     }
-    isRecording.value = false
+  }
+
+  /**
+   * Convert float samples to WAV format
+   */
+  function createWavFromSamples(samples: number[]): ArrayBuffer {
+    const sampleRate = 44100
+    const numChannels = 1
+    const bitsPerSample = 16
+    const bytesPerSample = bitsPerSample / 8
+    const blockAlign = numChannels * bytesPerSample
+    const byteRate = sampleRate * blockAlign
+    const dataSize = samples.length * blockAlign
+    const bufferSize = 44 + dataSize
+
+    const buffer = new ArrayBuffer(bufferSize)
+    const view = new DataView(buffer)
+
+    // WAV header
+    const writeString = (offset: number, str: string) => {
+      for (let i = 0; i < str.length; i++) {
+        view.setUint8(offset + i, str.charCodeAt(i))
+      }
+    }
+
+    writeString(0, 'RIFF')
+    view.setUint32(4, bufferSize - 8, true)
+    writeString(8, 'WAVE')
+    writeString(12, 'fmt ')
+    view.setUint32(16, 16, true) // fmt chunk size
+    view.setUint16(20, 1, true) // audio format (PCM)
+    view.setUint16(22, numChannels, true)
+    view.setUint32(24, sampleRate, true)
+    view.setUint32(28, byteRate, true)
+    view.setUint16(32, blockAlign, true)
+    view.setUint16(34, bitsPerSample, true)
+    writeString(36, 'data')
+    view.setUint32(40, dataSize, true)
+
+    // Write audio data
+    let offset = 44
+    for (const sample of samples) {
+      const clamped = Math.max(-1, Math.min(1, sample))
+      const int16 = clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff
+      view.setInt16(offset, int16, true)
+      offset += 2
+    }
+
+    return buffer
+  }
+
+  /**
+   * Extract waveform from audio samples
+   */
+  function extractWaveformFromSamples(samples: number[], numSamples: number): number[] {
+    if (samples.length === 0) return []
+
+    const step = Math.max(1, Math.floor(samples.length / numSamples))
+    const waveform: number[] = []
+    let globalMax = 0.001
+
+    for (let i = 0; i < numSamples; i++) {
+      const start = i * step
+      const end = Math.min(start + step, samples.length)
+
+      if (start >= samples.length) break
+
+      let maxVal = 0
+      for (let j = start; j < end; j++) {
+        maxVal = Math.max(maxVal, Math.abs(samples[j]))
+      }
+      globalMax = Math.max(globalMax, maxVal)
+      waveform.push(maxVal)
+    }
+
+    return waveform.map(s => s / globalMax)
+  }
+
+  function createPlaybackEndHandler(currentToken: number) {
+    return () => {
+      if (currentToken !== playbackToken) return
+      clearActiveAudio()
+      activePlaybackMode.value = null
+    }
   }
 
   async function playUserRecording(mode: 'recording' | 'comparison' = 'recording') {
-    if (!userAudioUrl.value) return
+    if (!userAudioUrl.value && recordingSamples.value.length === 0) return
 
     stopPlayback()
     await player.clearSentenceSegment({ pausePlayback: true })
@@ -112,20 +190,31 @@ export const useRecordingStore = defineStore('recording', () => {
     activePlaybackMode.value = mode
 
     try {
-      const audio = new Audio(userAudioUrl.value)
-      activeAudio = audio
-      audio.onended = () => {
-        if (currentToken !== playbackToken) return
-        clearActiveAudio()
-        activePlaybackMode.value = null
+      if (recordingSamples.value.length > 0) {
+        audioContext = new AudioContext()
+        const audioBuffer = audioContext.createBuffer(
+          1,
+          recordingSamples.value.length,
+          audioContext.sampleRate
+        )
+        const channelData = new Float32Array(recordingSamples.value)
+        audioBuffer.copyToChannel(channelData, 0)
+
+        audioBufferSource = audioContext.createBufferSource()
+        audioBufferSource.buffer = audioBuffer
+        audioBufferSource.connect(audioContext.destination)
+        audioBufferSource.onended = createPlaybackEndHandler(currentToken)
+        audioBufferSource.start()
+      } else {
+        const audio = new Audio(userAudioUrl.value!)
+        htmlAudio = audio
+        audio.onended = createPlaybackEndHandler(currentToken)
+        audio.onerror = () => {
+          createPlaybackEndHandler(currentToken)()
+          app.showSubtitleToast('录音播放失败', 'error')
+        }
+        await audio.play()
       }
-      audio.onerror = () => {
-        if (currentToken !== playbackToken) return
-        clearActiveAudio()
-        activePlaybackMode.value = null
-        app.showSubtitleToast('录音播放失败', 'error')
-      }
-      await audio.play()
     } catch (error) {
       clearActiveAudio()
       activePlaybackMode.value = null
@@ -134,7 +223,7 @@ export const useRecordingStore = defineStore('recording', () => {
   }
 
   async function playComparison() {
-    if (!userAudioUrl.value) return
+    if (recordingSamples.value.length === 0 && !userAudioUrl.value) return
 
     const sentence = transcript.sentences[player.currentIndex]
     const startedOriginal = await player.playSentenceSegment(sentence?.start_ms, sentence?.end_ms)
@@ -147,56 +236,11 @@ export const useRecordingStore = defineStore('recording', () => {
   }
 
   async function saveRecording(path: string) {
-    if (!recordingBlob.value) return
+    if (recordingSamples.value.length === 0) return
     try {
-      const arrayBuffer = await recordingBlob.value.arrayBuffer()
-      const uint8Array = new Uint8Array(arrayBuffer)
-      await invoke('save_recording', { path, data: Array.from(uint8Array) })
+      await invoke('save_recording', { path, data: recordingSamples.value })
     } catch (error) {
       app.showSubtitleToast(typeof error === 'string' ? error : String(error), 'error')
-    }
-  }
-
-  /**
-   * 从 Blob 提取简化波形数据
-   * 使用 Web Audio API 解码并降采样
-   */
-  async function extractWaveformFromBlob(blob: Blob): Promise<number[]> {
-    let audioContext: AudioContext | null = null
-    try {
-      const arrayBuffer = await blob.arrayBuffer()
-      audioContext = new AudioContext()
-      const audioBuffer = await audioContext.decodeAudioData(arrayBuffer)
-      const channelData = audioBuffer.getChannelData(0)
-      if (channelData.length === 0) return []
-
-      const numSamples = 200
-      const step = Math.max(1, Math.floor(channelData.length / numSamples))
-      const samples: number[] = []
-      for (let i = 0; i < numSamples; i++) {
-        const start = Math.min(i * step, channelData.length)
-        const end = Math.min(start + step, channelData.length)
-        if (start >= end) {
-          samples.push(0)
-          continue
-        }
-
-        let sum = 0
-        for (let j = start; j < end; j++) {
-          sum += Math.abs(channelData[j])
-        }
-        samples.push(sum / (end - start))
-      }
-
-      // 归一化到 0-1
-      const max = Math.max(...samples, 0.01)
-      return samples.map(s => s / max)
-    } catch {
-      return []
-    } finally {
-      if (audioContext) {
-        await audioContext.close().catch(() => {})
-      }
     }
   }
 

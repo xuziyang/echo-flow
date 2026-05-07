@@ -1,71 +1,140 @@
-// src-tauri/src/transcribe/mod.rs — Whisper transcription 主模块
+// src-tauri/src/transcribe/mod.rs — Whisper 字幕生成模块
 //
-// 拆分说明:
-//   types.rs         — 数据结构定义
-//   audio.rs         — 音频预处理与采样加载
-//   srt.rs           — SRT 时间格式与文件写入
-//   normalization.rs — 文本规范化与词匹配
-//   word_stream.rs   — 词流构建与句子对齐
-//   whisper.rs       — Whisper 模型调用
+// 迁移自 whisperx-rs 的完整 pipeline:
+//   audio.rs    — 音频加载 (FFmpeg)
+//   vad.rs      — 语音活动检测 (Silero VAD)
+//   asr.rs      — 语音识别 (Whisper)
+//   aligner.rs  — 字符级对齐 (Wav2Vec2 CTC)
+//   writer.rs   — SRT 文件生成
+//   error.rs    — 错误类型定义
+//   types.rs    — 数据结构定义
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use tauri::Emitter;
 
 // 子模块
+mod aligner;
+mod asr;
 mod audio;
-mod normalization;
-mod srt;
+mod error;
 mod types;
-mod whisper;
-mod word_stream;
+mod vad;
+mod writer;
 
-// Re-export 公开 API，保持外部调用方 (lib.rs, 前端) 无感知变化
+// 重新导出公开 API
+pub use aligner::{Aligner, AlignerConfig};
+pub use asr::{Asr, AsrConfig};
+pub use audio::Audio;
+pub use error::SubtitleError;
 pub use types::{
-    RawTranscriptSegment, TranscribeDoneEvent, TranscribeErrorEvent, TranscribeProgressEvent,
-    TranscriptSegment,
+    AudioSamples, ProcessingResult, Subtitle, Transcript, TranscriptSegment,
+    FrontendTranscriptSegment,
 };
-pub use srt::write_srt_file;
-pub use word_stream::{
-    build_transcript_segments_from_whisper, raw_segments_to_transcript_segments,
+pub use writer::write_srt;
+
+// Re-export frontend-compatible types (旧接口保持兼容)
+pub use types::{
+    TranscribeDoneEvent, TranscribeErrorEvent, TranscribeProgressEvent,
 };
 
 static LAST_TRANSCRIBE_JOB_ID: AtomicU64 = AtomicU64::new(0);
 
-fn build_transcript_output_paths(audio_path: &str) -> (std::path::PathBuf, std::path::PathBuf) {
-    let source = Path::new(audio_path);
-    let parent = source.parent().unwrap_or_else(|| Path::new("."));
-    let stem = source
-        .file_stem()
-        .and_then(|stem| stem.to_str())
-        .filter(|stem| !stem.is_empty())
-        .unwrap_or("transcript");
-
-    (
-        parent.join(format!("{}.whisper.raw.srt", stem)),
-        parent.join(format!("{}.whisper.segmented.srt", stem)),
-    )
+/// SubtitlePipeline - 完整的字幕生成 pipeline
+#[derive(Debug, Default, Clone)]
+pub struct SubtitlePipeline {
+    audio: Audio,
+    asr: Asr,
+    aligner: Aligner,
 }
 
-fn persist_transcripts(
-    audio_path: &str,
-    whisper_segments: &[RawTranscriptSegment],
-    segmented: &[TranscriptSegment],
-) -> Result<(), String> {
-    let raw_segments = raw_segments_to_transcript_segments(whisper_segments);
-    let (raw_path, segmented_path) = build_transcript_output_paths(audio_path);
+impl SubtitlePipeline {
+    pub fn new() -> Self {
+        Self {
+            audio: Audio::new(),
+            asr: Asr::new(),
+            aligner: Aligner::new(),
+        }
+    }
 
-    write_srt_file(&raw_path, &raw_segments)?;
-    write_srt_file(&segmented_path, segmented)?;
+    pub fn with_config(
+        whisper_model_path: PathBuf,
+        vad_model_path: PathBuf,
+        align_model_path: PathBuf,
+        align_vocab_path: PathBuf,
+    ) -> Self {
+        Self {
+            audio: Audio::new(),
+            asr: Asr::with_config(AsrConfig {
+                vad_model_path,
+                whisper_model_path,
+                chunk_size_secs: 30.0,
+                vad_threshold: 0.5,
+            }),
+            aligner: Aligner::with_config(AlignerConfig {
+                model_path: align_model_path,
+                vocab_path: align_vocab_path,
+            }),
+        }
+    }
 
-    eprintln!(
-        "Saved transcripts: raw={}, segmented={}",
-        raw_path.display(),
-        segmented_path.display()
-    );
+    pub fn process(&self, input: &Path) -> Result<ProcessingResult, SubtitleError> {
+        let audio = self.audio.load(input)?;
+        let transcript = self.asr.recognize(&audio)?;
+        let subtitles = self.aligner.align(&audio, &transcript)?;
 
-    Ok(())
+        Ok(ProcessingResult {
+            audio,
+            transcript,
+            subtitles,
+        })
+    }
+
+    pub fn process_with_progress<F>(&self, input: &Path, mut progress: F) -> Result<ProcessingResult, SubtitleError>
+    where
+        F: FnMut(&str, f32),
+    {
+        progress("Loading audio", 0.0);
+        let audio = self.audio.load(input)?;
+        progress("Audio loaded", 10.0);
+
+        progress("Detecting voice segments", 10.0);
+        let transcript = self.asr.recognize(&audio)?;
+        progress("Transcription complete", 50.0);
+
+        progress("Aligning with Wav2Vec2", 50.0);
+        let subtitles = self.aligner.align(&audio, &transcript)?;
+        progress("Alignment complete", 100.0);
+
+        Ok(ProcessingResult {
+            audio,
+            transcript,
+            subtitles,
+        })
+    }
+}
+
+fn resolve_model_path(
+    user_provided: Option<String>,
+    default_paths: &[&str],
+) -> Result<PathBuf, String> {
+    if let Some(path) = user_provided {
+        let p = PathBuf::from(&path);
+        if p.exists() {
+            return Ok(p);
+        }
+        return Err(format!("Model not found at: {}", path));
+    }
+
+    for path in default_paths {
+        let p = PathBuf::from(path);
+        if p.exists() {
+            return Ok(p);
+        }
+    }
+
+    Err("No valid model path found".to_string())
 }
 
 /// 转写音频文件，返回带时间戳的字幕
@@ -76,75 +145,98 @@ pub fn transcribe_audio(
     model_path: Option<String>,
     job_id: Option<u64>,
 ) -> Result<u64, String> {
-    // 查找 Whisper 模型
-    let model = model_path.unwrap_or_else(|| {
-        let home = std::env::var("HOME").unwrap_or_default();
-        [
-            format!("{}/.cache/whisper/ggml-small.en.bin", home),
-            format!("{}/.cache/whisper/ggml-base.en.bin", home),
-            format!("{}/.cache/whisper/ggml-base.bin", home),
-            "./models/ggml-small.en.bin".to_string(),
-            "./models/ggml-base.en.bin".to_string(),
-            "./ggml-small.en.bin".to_string(),
-            "./ggml-base.en.bin".to_string(),
-        ]
-        .into_iter()
-        .find(|p| Path::new(p).exists())
-        .unwrap_or_default()
-    });
+    // 解析 Whisper 模型路径
+    let whisper_model = resolve_model_path(model_path.clone(), &[
+        "./models/ggml-base.en.bin",
+        "./models/ggml-small.en.bin",
+        &format!("{}/.cache/whisper/ggml-base.en.bin", std::env::var("HOME").unwrap_or_default()),
+        &format!("{}/.cache/whisper/ggml-small.en.bin", std::env::var("HOME").unwrap_or_default()),
+    ])?;
 
-    if model.is_empty() {
-        return Err(
-            "未找到 Whisper 模型文件。请下载模型并指定路径，或将模型放置在 ~/.cache/whisper/ 目录下。"
-                .to_string(),
-        );
-    }
+    // VAD 模型路径
+    let vad_model = resolve_model_path(None, &[
+        "./models/silero_vad.onnx",
+        &format!("{}/.cargo/registry/src/*/whisperx-rs-*/models/silero_vad.onnx", std::env::var("HOME").unwrap_or_default()),
+    ])?;
+
+    // Wav2Vec2 模型路径
+    let align_model = resolve_model_path(None, &[
+        "./models/wav2vec2-base-en.onnx",
+        &format!("{}/.cargo/registry/src/*/whisperx-rs-*/models/wav2vec2-base-en.onnx", std::env::var("HOME").unwrap_or_default()),
+    ])?;
+
+    // Wav2Vec2 vocab 路径
+    let align_vocab = resolve_model_path(None, &[
+        "./models/wav2vec2-vocab.json",
+        &format!("{}/.cargo/registry/src/*/whisperx-rs-*/models/wav2vec2-vocab.json", std::env::var("HOME").unwrap_or_default()),
+    ])?;
 
     log::info!(
-        "Starting transcription: audio={}, model={}",
+        "Starting transcription: audio={}, whisper={}, vad={}, align={}",
         audio_path,
-        model
+        whisper_model.display(),
+        vad_model.display(),
+        align_model.display()
     );
 
     let resolved_job_id =
         job_id.unwrap_or_else(|| LAST_TRANSCRIBE_JOB_ID.fetch_add(1, Ordering::Relaxed) + 1);
     let audio_path_clone = audio_path.clone();
-    let model_clone = model.clone();
     let window_clone = window.clone();
 
     std::thread::spawn(move || {
         let progress_audio_path = audio_path_clone.clone();
-        let result = whisper::run_whisper(
-            &audio_path_clone,
-            &model_clone,
-            |percent, sentence| {
-                let _ = window_clone.emit(
-                    "transcribe-progress",
-                    TranscribeProgressEvent {
-                        job_id: resolved_job_id,
-                        audio_path: progress_audio_path.clone(),
-                        percent,
-                        sentence: sentence.to_string(),
-                        done: false,
-                    },
-                );
-            },
+
+        let pipeline = SubtitlePipeline::with_config(
+            whisper_model,
+            vad_model,
+            align_model,
+            align_vocab,
         );
 
+        let result = pipeline.process_with_progress(Path::new(&audio_path_clone), |stage, percent| {
+            let _ = window_clone.emit(
+                "transcribe-progress",
+                TranscribeProgressEvent {
+                    job_id: resolved_job_id,
+                    audio_path: progress_audio_path.clone(),
+                    percent,
+                    sentence: stage.to_string(),
+                    done: false,
+                },
+            );
+        });
+
         match result {
-            Ok(whisper_segments) => {
-                let segments = build_transcript_segments_from_whisper(&whisper_segments);
-                if let Err(error) =
-                    persist_transcripts(&audio_path_clone, &whisper_segments, &segments)
-                {
-                    eprintln!("Persist transcripts failed: {}", error);
+            Ok(result) => {
+                // 转换为前端兼容的格式
+                let segments: Vec<FrontendTranscriptSegment> = result.subtitles.iter().map(|s| FrontendTranscriptSegment {
+                    id: s.index as i64,
+                    en: s.text.clone(),
+                    start_ms: s.start_ms as i64,
+                    end_ms: s.end_ms as i64,
+                    words: Vec::new(),
+                }).collect();
+
+                // 保存 SRT 文件
+                let source = Path::new(&audio_path_clone);
+                let parent = source.parent().unwrap_or_else(|| Path::new("."));
+                let stem = source.file_stem().and_then(|s| s.to_str()).unwrap_or("transcript");
+                let srt_path = parent.join(format!("{}.srt", stem));
+
+                match std::fs::File::create(&srt_path) {
+                    Ok(file) => {
+                        if let Err(e) = writer::write_srt(&result.subtitles, file) {
+                            eprintln!("Failed to write SRT: {}", e);
+                        }
+                    }
+                    Err(e) => eprintln!("Failed to create SRT file: {}", e),
                 }
+
                 eprintln!(
-                    "Emitting transcribe-done: job_id={}, audio_path={}, whisper_segments={}, transcript_segments={}",
-                    resolved_job_id,
-                    audio_path_clone,
-                    whisper_segments.len(),
-                    segments.len()
+                    "Transcription complete: {} segments, saved to {}",
+                    segments.len(),
+                    srt_path.display()
                 );
 
                 let _ = window_clone.emit(
@@ -157,12 +249,13 @@ pub fn transcribe_audio(
                 );
             }
             Err(e) => {
+                eprintln!("Transcription failed: {}", e);
                 let _ = window_clone.emit(
                     "transcribe-error",
                     TranscribeErrorEvent {
                         job_id: resolved_job_id,
                         audio_path: audio_path_clone.clone(),
-                        error: e,
+                        error: e.to_string(),
                     },
                 );
             }

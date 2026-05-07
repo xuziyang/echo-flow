@@ -1,0 +1,652 @@
+use std::collections::HashMap;
+use std::fmt;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+
+use ort::session::{builder::GraphOptimizationLevel, Session};
+use ort::value::Tensor;
+
+use super::audio::SAMPLE_RATE;
+use super::error::SubtitleError;
+use super::types::{
+    ms_to_sample, samples_to_ms, validate_audio, AudioSamples, Subtitle, Transcript,
+    TranscriptSegment, DEFAULT_LANGUAGE,
+};
+
+const DEFAULT_ALIGN_MODEL: &str = "models/wav2vec2-base-en.onnx";
+const DEFAULT_ALIGN_VOCAB: &str = "models/wav2vec2-vocab.json";
+const MIN_WAV2VEC_SAMPLES: usize = 400;
+
+#[derive(Clone)]
+pub struct Aligner {
+    config: Arc<AlignerConfig>,
+    models: Arc<Mutex<Option<AlignerModels>>>,
+}
+
+impl fmt::Debug for Aligner {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Aligner")
+            .field("model_path", &self.config.model_path)
+            .field("vocab_path", &self.config.vocab_path)
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct AlignerConfig {
+    pub model_path: PathBuf,
+    pub vocab_path: PathBuf,
+}
+
+struct AlignerModels {
+    session: Session,
+    vocab: AlignmentVocab,
+}
+
+#[derive(Debug, Clone)]
+struct AlignmentVocab {
+    token_to_id: HashMap<char, usize>,
+    blank_id: usize,
+}
+
+#[derive(Debug, Clone)]
+struct CleanTranscript {
+    chars: Vec<char>,
+    char_to_original: Vec<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct Point {
+    token_index: usize,
+    time_index: usize,
+    score: f32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct AlignedChar {
+    original_index: usize,
+    start_ms: u64,
+    end_ms: u64,
+    score: f32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct TokenSegment {
+    start: usize,
+    end: usize,
+    score: f32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct SentenceSpan {
+    start: usize,
+    end: usize,
+    text: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct TimedSentence {
+    text: String,
+    start_ms: Option<u64>,
+    end_ms: Option<u64>,
+}
+
+impl Default for Aligner {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Default for AlignerConfig {
+    fn default() -> Self {
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+
+        Self {
+            model_path: manifest_dir.join(DEFAULT_ALIGN_MODEL),
+            vocab_path: manifest_dir.join(DEFAULT_ALIGN_VOCAB),
+        }
+    }
+}
+
+impl Aligner {
+    pub fn new() -> Self {
+        Self::with_config(AlignerConfig::default())
+    }
+
+    pub fn with_config(config: AlignerConfig) -> Self {
+        Self {
+            config: Arc::new(config),
+            models: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    pub fn align(
+        &self,
+        audio: &AudioSamples,
+        transcript: &Transcript,
+    ) -> Result<Vec<Subtitle>, SubtitleError> {
+        validate_audio(audio, SAMPLE_RATE)?;
+        if transcript.segments.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut models_guard = self
+            .models
+            .lock()
+            .map_err(|error| SubtitleError::AlignInference(error.to_string()))?;
+        if models_guard.is_none() {
+            *models_guard = Some(load_models(&self.config)?);
+        }
+        let models = models_guard
+            .as_mut()
+            .expect("alignment models should be initialized");
+
+        let language = transcript.language.as_deref().unwrap_or(DEFAULT_LANGUAGE);
+        let mut subtitles = Vec::new();
+
+        for (position, segment) in transcript.segments.iter().enumerate() {
+            let fallback = fallback_segment_time(position, segment);
+            let aligned_chars = align_segment(audio, segment, models)?;
+            let sentences = timed_sentences(segment, language, &aligned_chars, fallback);
+
+            for sentence in sentences {
+                subtitles.push(Subtitle {
+                    index: subtitles.len() + 1,
+                    start_ms: sentence.start_ms.unwrap_or(fallback.0),
+                    end_ms: sentence.end_ms.unwrap_or(fallback.1),
+                    text: sentence.text,
+                });
+            }
+        }
+
+        Ok(subtitles)
+    }
+}
+
+fn load_models(config: &AlignerConfig) -> Result<AlignerModels, SubtitleError> {
+    let builder = Session::builder().map_err(|error| {
+        SubtitleError::AlignLoad(format!("failed to create ORT session builder: {error}"))
+    })?;
+    let session = builder
+        .with_optimization_level(GraphOptimizationLevel::All)
+        .map_err(|error| SubtitleError::AlignLoad(error.to_string()))?
+        .commit_from_file(&config.model_path)
+        .map_err(|error| SubtitleError::AlignLoad(error.to_string()))?;
+
+    Ok(AlignerModels {
+        session,
+        vocab: load_vocab(&config.vocab_path)?,
+    })
+}
+
+fn load_vocab(path: &Path) -> Result<AlignmentVocab, SubtitleError> {
+    let bytes = fs::read(path).map_err(|error| SubtitleError::AlignLoad(error.to_string()))?;
+    let raw = serde_json::from_slice::<HashMap<String, usize>>(&bytes)
+        .map_err(|error| SubtitleError::AlignLoad(error.to_string()))?;
+
+    let mut token_to_id = HashMap::new();
+    let mut blank_id = 0;
+    for (token, id) in raw {
+        if token == "<pad>" || token == "[pad]" {
+            blank_id = id;
+        }
+        if let Some(ch) = token.chars().next().filter(|_| token.chars().count() == 1) {
+            token_to_id.insert(ch.to_ascii_lowercase(), id);
+        }
+    }
+
+    Ok(AlignmentVocab {
+        token_to_id,
+        blank_id,
+    })
+}
+
+fn align_segment(
+    audio: &AudioSamples,
+    segment: &TranscriptSegment,
+    models: &mut AlignerModels,
+) -> Result<Option<Vec<AlignedChar>>, SubtitleError> {
+    let clean = clean_transcript(&segment.text);
+    if clean.chars.is_empty() || segment.end_ms <= segment.start_ms {
+        return Ok(None);
+    }
+
+    let start_sample = ms_to_sample(segment.start_ms, audio.sample_rate).min(audio.samples.len());
+    let end_sample = ms_to_sample(segment.end_ms, audio.sample_rate).min(audio.samples.len());
+    if end_sample <= start_sample {
+        return Ok(None);
+    }
+
+    let mut waveform = audio.samples[start_sample..end_sample].to_vec();
+    let original_len = waveform.len();
+    if waveform.len() < MIN_WAV2VEC_SAMPLES {
+        waveform.resize(MIN_WAV2VEC_SAMPLES, 0.0);
+    }
+
+    let emission = run_alignment_model(&mut models.session, waveform, &models.vocab)?;
+    if emission.is_empty() {
+        return Ok(None);
+    }
+
+    let (emission, tokens) = tokens_for_clean_transcript(emission, &clean.chars, &models.vocab);
+    let trellis = get_trellis(&emission, &tokens, models.vocab.blank_id);
+    let Some(path) = backtrack(&trellis, &emission, &tokens, models.vocab.blank_id) else {
+        return Ok(None);
+    };
+    let token_segments = merge_repeats(&path);
+    if token_segments.len() != clean.chars.len() {
+        return Ok(None);
+    }
+
+    let duration_ms = samples_to_ms(original_len, audio.sample_rate);
+    let frame_count = trellis.len().saturating_sub(1).max(1);
+    let ratio = duration_ms as f32 / frame_count as f32;
+
+    let chars = token_segments
+        .iter()
+        .zip(clean.char_to_original.iter().copied())
+        .map(|(token, original_index)| AlignedChar {
+            original_index,
+            start_ms: segment.start_ms + (token.start as f32 * ratio).round() as u64,
+            end_ms: segment.start_ms + (token.end as f32 * ratio).round() as u64,
+            score: token.score,
+        })
+        .collect();
+
+    Ok(Some(chars))
+}
+
+fn run_alignment_model(
+    session: &mut Session,
+    waveform: Vec<f32>,
+    vocab: &AlignmentVocab,
+) -> Result<Vec<Vec<f32>>, SubtitleError> {
+    let input = Tensor::<f32>::from_array(([1_usize, waveform.len()], waveform))
+        .map_err(|error| SubtitleError::AlignInference(error.to_string()))?;
+    let outputs = session
+        .run(ort::inputs!["input" => input])
+        .map_err(|error| SubtitleError::AlignInference(error.to_string()))?;
+    let (shape, logits) = outputs["logits"]
+        .try_extract_tensor::<f32>()
+        .map_err(|error| SubtitleError::AlignInference(error.to_string()))?;
+
+    if shape.len() != 3 {
+        return Err(SubtitleError::AlignInference(format!(
+            "expected logits rank 3, got shape {shape:?}"
+        )));
+    }
+    let batch = shape_dim_to_usize(shape[0], "batch")?;
+    let frames = shape_dim_to_usize(shape[1], "time")?;
+    let classes = shape_dim_to_usize(shape[2], "vocab")?;
+    if batch != 1 {
+        return Err(SubtitleError::AlignInference(format!(
+            "expected batch size 1, got {batch}"
+        )));
+    }
+    if classes <= vocab.blank_id {
+        return Err(SubtitleError::AlignInference(format!(
+            "blank id {} is outside logits class count {classes}",
+            vocab.blank_id
+        )));
+    }
+
+    let expected = batch * frames * classes;
+    if logits.len() != expected {
+        return Err(SubtitleError::AlignInference(format!(
+            "expected {expected} logits, got {}",
+            logits.len()
+        )));
+    }
+
+    let mut emission = Vec::with_capacity(frames);
+    for frame in 0..frames {
+        let start = frame * classes;
+        let end = start + classes;
+        emission.push(log_softmax(&logits[start..end]));
+    }
+
+    Ok(emission)
+}
+
+fn shape_dim_to_usize(value: i64, name: &str) -> Result<usize, SubtitleError> {
+    usize::try_from(value).map_err(|_| {
+        SubtitleError::AlignInference(format!("invalid {name} dimension in logits shape: {value}"))
+    })
+}
+
+fn clean_transcript(text: &str) -> CleanTranscript {
+    let chars = text.chars().collect::<Vec<_>>();
+    let leading = chars.iter().take_while(|ch| ch.is_whitespace()).count();
+    let trailing = chars
+        .iter()
+        .rev()
+        .take_while(|ch| ch.is_whitespace())
+        .count();
+    let align_end = chars.len().saturating_sub(trailing);
+
+    let mut clean_chars = Vec::new();
+    let mut char_to_original = Vec::new();
+    for (index, ch) in chars.iter().copied().enumerate() {
+        if index < leading || index >= align_end {
+            continue;
+        }
+
+        if ch.is_whitespace() {
+            clean_chars.push('|');
+        } else {
+            clean_chars.push(ch.to_ascii_lowercase());
+        }
+        char_to_original.push(index);
+    }
+
+    CleanTranscript {
+        chars: clean_chars,
+        char_to_original,
+    }
+}
+
+fn tokens_for_clean_transcript(
+    mut emission: Vec<Vec<f32>>,
+    chars: &[char],
+    vocab: &AlignmentVocab,
+) -> (Vec<Vec<f32>>, Vec<usize>) {
+    let needs_wildcard = chars.iter().any(|ch| !vocab.token_to_id.contains_key(ch));
+    let wildcard_id = if needs_wildcard {
+        for frame in &mut emission {
+            let wildcard_score = frame
+                .iter()
+                .enumerate()
+                .filter(|(id, _)| *id != vocab.blank_id)
+                .map(|(_, score)| *score)
+                .fold(f32::NEG_INFINITY, f32::max);
+            frame.push(wildcard_score);
+        }
+        emission.first().map(|frame| frame.len() - 1).unwrap_or(0)
+    } else {
+        0
+    };
+
+    let tokens = chars
+        .iter()
+        .map(|ch| vocab.token_to_id.get(ch).copied().unwrap_or(wildcard_id))
+        .collect();
+
+    (emission, tokens)
+}
+
+fn timed_sentences(
+    segment: &TranscriptSegment,
+    language: &str,
+    aligned_chars: &Option<Vec<AlignedChar>>,
+    fallback: (u64, u64),
+) -> Vec<TimedSentence> {
+    let spans = sentence_spans(language, &segment.text);
+    if spans.is_empty() {
+        return vec![TimedSentence {
+            text: segment.text.clone(),
+            start_ms: Some(fallback.0),
+            end_ms: Some(fallback.1),
+        }];
+    }
+
+    let mut timed = spans
+        .into_iter()
+        .map(|span| {
+            let (start_ms, end_ms) = sentence_time(&span, aligned_chars.as_deref());
+            TimedSentence {
+                text: span.text,
+                start_ms,
+                end_ms,
+            }
+        })
+        .collect::<Vec<_>>();
+
+    interpolate_sentence_times(&mut timed);
+    for sentence in &mut timed {
+        if sentence.start_ms.is_none() {
+            sentence.start_ms = Some(fallback.0);
+        }
+        if sentence.end_ms.is_none() {
+            sentence.end_ms = Some(fallback.1);
+        }
+        if sentence.end_ms <= sentence.start_ms {
+            sentence.start_ms = Some(fallback.0);
+            sentence.end_ms = Some(fallback.1);
+        }
+    }
+
+    timed
+}
+
+fn sentence_spans(language: &str, text: &str) -> Vec<SentenceSpan> {
+    let boundaries = sentencex::get_sentence_boundaries(language, text);
+    if boundaries.is_empty() {
+        let trimmed = text.trim();
+        return if trimmed.is_empty() {
+            Vec::new()
+        } else {
+            vec![SentenceSpan {
+                start: 0,
+                end: text.chars().count(),
+                text: trimmed.to_owned(),
+            }]
+        };
+    }
+
+    let char_offsets = char_byte_offsets(text);
+    boundaries
+        .into_iter()
+        .filter_map(|boundary| {
+            let start = byte_to_char_index(&char_offsets, boundary.start_index);
+            let end = byte_to_char_index(&char_offsets, boundary.end_index);
+            let sentence_text = boundary.text.trim().to_owned();
+            if sentence_text.is_empty() || end <= start {
+                None
+            } else {
+                Some(SentenceSpan {
+                    start,
+                    end,
+                    text: sentence_text,
+                })
+            }
+        })
+        .collect()
+}
+
+fn char_byte_offsets(text: &str) -> Vec<usize> {
+    let mut offsets = text
+        .char_indices()
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+    offsets.push(text.len());
+    offsets
+}
+
+fn byte_to_char_index(offsets: &[usize], byte_index: usize) -> usize {
+    match offsets.binary_search(&byte_index) {
+        Ok(index) => index,
+        Err(index) => index.saturating_sub(1),
+    }
+}
+
+fn sentence_time(
+    span: &SentenceSpan,
+    aligned_chars: Option<&[AlignedChar]>,
+) -> (Option<u64>, Option<u64>) {
+    let Some(aligned_chars) = aligned_chars else {
+        return (None, None);
+    };
+
+    let mut start_ms = None;
+    let mut end_ms = None;
+    for aligned in aligned_chars {
+        if aligned.original_index < span.start || aligned.original_index >= span.end {
+            continue;
+        }
+        start_ms =
+            Some(start_ms.map_or(aligned.start_ms, |start: u64| start.min(aligned.start_ms)));
+        end_ms = Some(end_ms.map_or(aligned.end_ms, |end: u64| end.max(aligned.end_ms)));
+    }
+
+    (start_ms, end_ms)
+}
+
+fn interpolate_sentence_times(sentences: &mut [TimedSentence]) {
+    for index in 0..sentences.len() {
+        if sentences[index].start_ms.is_some() && sentences[index].end_ms.is_some() {
+            continue;
+        }
+
+        let previous = sentences[..index]
+            .iter()
+            .rev()
+            .find_map(|sentence| sentence.start_ms.zip(sentence.end_ms));
+        let next = sentences[index + 1..]
+            .iter()
+            .find_map(|sentence| sentence.start_ms.zip(sentence.end_ms));
+
+        let replacement = match (previous, next) {
+            (Some(prev), Some(next)) => {
+                let prev_gap = index
+                    - sentences[..index]
+                        .iter()
+                        .rposition(|sentence| {
+                            sentence.start_ms.is_some() && sentence.end_ms.is_some()
+                        })
+                        .unwrap_or(0);
+                let next_gap = sentences[index + 1..]
+                    .iter()
+                    .position(|sentence| sentence.start_ms.is_some() && sentence.end_ms.is_some())
+                    .map(|pos| pos + 1)
+                    .unwrap_or(usize::MAX);
+                if prev_gap <= next_gap {
+                    Some(prev)
+                } else {
+                    Some(next)
+                }
+            }
+            (Some(prev), None) => Some(prev),
+            (None, Some(next)) => Some(next),
+            (None, None) => None,
+        };
+
+        if let Some((start_ms, end_ms)) = replacement {
+            sentences[index].start_ms = Some(start_ms);
+            sentences[index].end_ms = Some(end_ms);
+        }
+    }
+}
+
+fn fallback_segment_time(position: usize, segment: &TranscriptSegment) -> (u64, u64) {
+    if segment.end_ms > segment.start_ms {
+        (segment.start_ms, segment.end_ms)
+    } else {
+        let start_ms = position as u64 * 2_000;
+        (start_ms, start_ms + 2_000)
+    }
+}
+
+fn get_trellis(emission: &[Vec<f32>], tokens: &[usize], blank_id: usize) -> Vec<Vec<f32>> {
+    let num_frame = emission.len();
+    let num_tokens = tokens.len();
+    let mut trellis = vec![vec![f32::NEG_INFINITY; num_tokens + 1]; num_frame + 1];
+    trellis[0][0] = 0.0;
+
+    for t in 0..num_frame {
+        trellis[t + 1][0] = trellis[t][0] + emission[t][blank_id];
+    }
+    for row in trellis
+        .iter_mut()
+        .skip(num_frame.saturating_sub(num_tokens) + 1)
+    {
+        row[0] = f32::INFINITY;
+    }
+
+    for t in 0..num_frame {
+        for j in 1..=num_tokens {
+            let stay = trellis[t][j] + emission[t][blank_id];
+            let change = trellis[t][j - 1] + emission[t][tokens[j - 1]];
+            trellis[t + 1][j] = stay.max(change);
+        }
+    }
+
+    trellis
+}
+
+fn backtrack(
+    trellis: &[Vec<f32>],
+    emission: &[Vec<f32>],
+    tokens: &[usize],
+    blank_id: usize,
+) -> Option<Vec<Point>> {
+    if tokens.is_empty() || trellis.is_empty() {
+        return Some(Vec::new());
+    }
+
+    let mut j = tokens.len();
+    let mut t_start = 0;
+    let mut best = f32::NEG_INFINITY;
+    for (t, row) in trellis.iter().enumerate() {
+        if row[j] > best {
+            best = row[j];
+            t_start = t;
+        }
+    }
+
+    let mut path = Vec::new();
+    for t in (1..=t_start).rev() {
+        let stayed = trellis[t - 1][j] + emission[t - 1][blank_id];
+        let changed = trellis[t - 1][j - 1] + emission[t - 1][tokens[j - 1]];
+        let token_id = if changed > stayed {
+            tokens[j - 1]
+        } else {
+            blank_id
+        };
+        path.push(Point {
+            token_index: j - 1,
+            time_index: t - 1,
+            score: emission[t - 1][token_id].exp(),
+        });
+
+        if changed > stayed {
+            j -= 1;
+            if j == 0 {
+                break;
+            }
+        }
+    }
+
+    if j != 0 {
+        return None;
+    }
+
+    path.reverse();
+    Some(path)
+}
+
+fn merge_repeats(path: &[Point]) -> Vec<TokenSegment> {
+    let mut segments = Vec::new();
+    let mut i1 = 0;
+    while i1 < path.len() {
+        let mut i2 = i1;
+        while i2 < path.len() && path[i1].token_index == path[i2].token_index {
+            i2 += 1;
+        }
+        let score = path[i1..i2].iter().map(|point| point.score).sum::<f32>() / (i2 - i1) as f32;
+        segments.push(TokenSegment {
+            start: path[i1].time_index,
+            end: path[i2 - 1].time_index + 1,
+            score,
+        });
+        i1 = i2;
+    }
+    segments
+}
+
+fn log_softmax(values: &[f32]) -> Vec<f32> {
+    let max = values.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+    let sum_exp = values.iter().map(|value| (*value - max).exp()).sum::<f32>();
+    let log_sum_exp = max + sum_exp.ln();
+    values.iter().map(|value| *value - log_sum_exp).collect()
+}

@@ -101,10 +101,24 @@ impl Default for Aligner {
 impl Default for AlignerConfig {
     fn default() -> Self {
         let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let home = std::env::var("HOME").unwrap_or_default();
+        let cache_models = PathBuf::from(format!("{}/.cache/echo-flow/models", home));
+
+        let model_path = if cache_models.join("wav2vec2-base-en.onnx").exists() {
+            cache_models.join("wav2vec2-base-en.onnx")
+        } else {
+            manifest_dir.join(DEFAULT_ALIGN_MODEL)
+        };
+
+        let vocab_path = if cache_models.join("wav2vec2-vocab.json").exists() {
+            cache_models.join("wav2vec2-vocab.json")
+        } else {
+            manifest_dir.join(DEFAULT_ALIGN_VOCAB)
+        };
 
         Self {
-            model_path: manifest_dir.join(DEFAULT_ALIGN_MODEL),
-            vocab_path: manifest_dir.join(DEFAULT_ALIGN_VOCAB),
+            model_path,
+            vocab_path,
         }
     }
 }

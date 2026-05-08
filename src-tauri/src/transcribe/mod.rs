@@ -145,30 +145,38 @@ pub fn transcribe_audio(
     model_path: Option<String>,
     job_id: Option<u64>,
 ) -> Result<u64, String> {
+    let home = std::env::var("HOME").unwrap_or_default();
+    let cache_models = format!("{}/.cache/echo-flow/models", home);
+
     // 解析 Whisper 模型路径
     let whisper_model = resolve_model_path(model_path.clone(), &[
+        &format!("{}/ggml-base.en.bin", cache_models),
+        &format!("{}/ggml-small.en.bin", cache_models),
         "./models/ggml-base.en.bin",
         "./models/ggml-small.en.bin",
-        &format!("{}/.cache/whisper/ggml-base.en.bin", std::env::var("HOME").unwrap_or_default()),
-        &format!("{}/.cache/whisper/ggml-small.en.bin", std::env::var("HOME").unwrap_or_default()),
+        &format!("{}/.cache/whisper/ggml-base.en.bin", home),
+        &format!("{}/.cache/whisper/ggml-small.en.bin", home),
     ])?;
 
     // VAD 模型路径
     let vad_model = resolve_model_path(None, &[
+        &format!("{}/silero_vad.onnx", cache_models),
         "./models/silero_vad.onnx",
-        &format!("{}/.cargo/registry/src/*/whisperx-rs-*/models/silero_vad.onnx", std::env::var("HOME").unwrap_or_default()),
+        &format!("{}/.cargo/registry/src/*/whisperx-rs-*/models/silero_vad.onnx", home),
     ])?;
 
     // Wav2Vec2 模型路径
     let align_model = resolve_model_path(None, &[
+        &format!("{}/wav2vec2-base-en.onnx", cache_models),
         "./models/wav2vec2-base-en.onnx",
-        &format!("{}/.cargo/registry/src/*/whisperx-rs-*/models/wav2vec2-base-en.onnx", std::env::var("HOME").unwrap_or_default()),
+        &format!("{}/.cargo/registry/src/*/whisperx-rs-*/models/wav2vec2-base-en.onnx", home),
     ])?;
 
     // Wav2Vec2 vocab 路径
     let align_vocab = resolve_model_path(None, &[
+        &format!("{}/wav2vec2-vocab.json", cache_models),
         "./models/wav2vec2-vocab.json",
-        &format!("{}/.cargo/registry/src/*/whisperx-rs-*/models/wav2vec2-vocab.json", std::env::var("HOME").unwrap_or_default()),
+        &format!("{}/.cargo/registry/src/*/whisperx-rs-*/models/wav2vec2-vocab.json", home),
     ])?;
 
     log::info!(

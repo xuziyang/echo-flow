@@ -56,10 +56,24 @@ impl Default for Asr {
 impl Default for AsrConfig {
     fn default() -> Self {
         let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let home = std::env::var("HOME").unwrap_or_default();
+        let cache_models = PathBuf::from(format!("{}/.cache/echo-flow/models", home));
+
+        let whisper_model_path = if cache_models.join("ggml-base.en.bin").exists() {
+            cache_models.join("ggml-base.en.bin")
+        } else {
+            manifest_dir.join(DEFAULT_WHISPER_MODEL)
+        };
+
+        let vad_model_path = if cache_models.join("silero_vad.onnx").exists() {
+            cache_models.join("silero_vad.onnx")
+        } else {
+            manifest_dir.join(DEFAULT_VAD_MODEL)
+        };
 
         Self {
-            vad_model_path: manifest_dir.join(DEFAULT_VAD_MODEL),
-            whisper_model_path: manifest_dir.join(DEFAULT_WHISPER_MODEL),
+            vad_model_path,
+            whisper_model_path,
             chunk_size_secs: DEFAULT_CHUNK_SIZE_SECS,
             vad_threshold: DEFAULT_VAD_THRESHOLD,
         }

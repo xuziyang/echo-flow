@@ -174,6 +174,17 @@ impl Aligner {
             }
         }
 
+        // 确保相邻字幕时间不重叠，且每句至少持续 1ms
+        for i in 0..subtitles.len().saturating_sub(1) {
+            let next_start = subtitles[i + 1].start_ms;
+            if subtitles[i].end_ms >= next_start {
+                subtitles[i].end_ms = next_start.saturating_sub(1);
+            }
+            if subtitles[i].end_ms <= subtitles[i].start_ms {
+                subtitles[i].end_ms = subtitles[i].start_ms + 1;
+            }
+        }
+
         Ok(subtitles)
     }
 }
@@ -612,18 +623,19 @@ fn backtrack(
     for t in (1..=t_start).rev() {
         let stayed = trellis[t - 1][j] + emission[t - 1][blank_id];
         let changed = trellis[t - 1][j - 1] + emission[t - 1][tokens[j - 1]];
-        let token_id = if changed > stayed {
+        let is_changed = changed > stayed;
+        let token_id = if is_changed {
             tokens[j - 1]
         } else {
             blank_id
         };
         path.push(Point {
-            token_index: j - 1,
+            token_index: if is_changed { j - 1 } else { usize::MAX },
             time_index: t - 1,
             score: emission[t - 1][token_id].exp(),
         });
 
-        if changed > stayed {
+        if is_changed {
             j -= 1;
             if j == 0 {
                 break;
@@ -640,17 +652,22 @@ fn backtrack(
 }
 
 fn merge_repeats(path: &[Point]) -> Vec<TokenSegment> {
+    let non_blank: Vec<&Point> = path
+        .iter()
+        .filter(|p| p.token_index != usize::MAX)
+        .collect();
+
     let mut segments = Vec::new();
     let mut i1 = 0;
-    while i1 < path.len() {
+    while i1 < non_blank.len() {
         let mut i2 = i1;
-        while i2 < path.len() && path[i1].token_index == path[i2].token_index {
+        while i2 < non_blank.len() && non_blank[i1].token_index == non_blank[i2].token_index {
             i2 += 1;
         }
-        let score = path[i1..i2].iter().map(|point| point.score).sum::<f32>() / (i2 - i1) as f32;
+        let score = non_blank[i1..i2].iter().map(|p| p.score).sum::<f32>() / (i2 - i1) as f32;
         segments.push(TokenSegment {
-            start: path[i1].time_index,
-            end: path[i2 - 1].time_index + 1,
+            start: non_blank[i1].time_index,
+            end: non_blank[i2 - 1].time_index + 1,
             score,
         });
         i1 = i2;

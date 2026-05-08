@@ -128,10 +128,11 @@ impl Asr {
         let mut transcript_segments = Vec::new();
         for chunk in chunks {
             let samples = &audio.samples[chunk.start_sample..chunk.end_sample];
-            append_whisper_segments(
+            append_whisper_segment(
                 &models.whisper,
                 samples,
                 sample_to_ms(chunk.start_sample, audio.sample_rate),
+                audio.sample_rate,
                 &mut transcript_segments,
             )?;
         }
@@ -154,10 +155,11 @@ fn load_models(config: &AsrConfig) -> Result<AsrModels, SubtitleError> {
     Ok(AsrModels { vad, whisper })
 }
 
-fn append_whisper_segments(
+fn append_whisper_segment(
     whisper: &WhisperContext,
     samples: &[f32],
     chunk_start_ms: u64,
+    audio_sample_rate: u32,
     transcript_segments: &mut Vec<TranscriptSegment>,
 ) -> Result<(), SubtitleError> {
     if samples.is_empty() {
@@ -171,6 +173,8 @@ fn append_whisper_segments(
     params.set_print_progress(false);
     params.set_print_realtime(false);
     params.set_print_timestamps(false);
+    params.set_no_timestamps(true);
+    params.set_single_segment(true);
 
     let mut state = whisper
         .create_state()
@@ -179,34 +183,34 @@ fn append_whisper_segments(
         .full(params, samples)
         .map_err(|error| SubtitleError::WhisperInference(error.to_string()))?;
 
+    let mut texts: Vec<String> = Vec::new();
     for segment in state.as_iter() {
         let text = segment
             .to_str_lossy()
             .map_err(|error| SubtitleError::WhisperInference(error.to_string()))?
             .trim()
             .to_owned();
-
-        if text.is_empty() {
-            continue;
+        if !text.is_empty() {
+            texts.push(text);
         }
-
-        let start_ms = chunk_start_ms + centiseconds_to_ms(segment.start_timestamp());
-        let end_ms = chunk_start_ms + centiseconds_to_ms(segment.end_timestamp());
-        transcript_segments.push(TranscriptSegment {
-            id: transcript_segments.len(),
-            start_ms,
-            end_ms,
-            text,
-        });
     }
+
+    if texts.is_empty() {
+        return Ok(());
+    }
+
+    let full_text = texts.join(" ");
+    let chunk_end_ms = chunk_start_ms + samples_to_ms(samples.len(), audio_sample_rate);
+    transcript_segments.push(TranscriptSegment {
+        id: transcript_segments.len(),
+        start_ms: chunk_start_ms,
+        end_ms: chunk_end_ms,
+        text: full_text,
+    });
 
     Ok(())
 }
 
 fn sample_to_ms(sample: usize, sample_rate: u32) -> u64 {
     samples_to_ms(sample, sample_rate)
-}
-
-fn centiseconds_to_ms(timestamp: i64) -> u64 {
-    timestamp.max(0) as u64 * 10
 }

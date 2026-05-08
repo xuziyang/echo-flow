@@ -26,6 +26,19 @@ const canCompare = computed(() => (
   && !recording.isRecording
   && player.canPlaySentenceSegment(currentSentence.value?.start_ms, currentSentence.value?.end_ms)
 ))
+
+const isDark = computed(() => app.theme === 'dark')
+
+const actionButtonClass = (enabled: boolean) => {
+  if (isDark.value) {
+    return enabled
+      ? 'border-white/10 text-gray-200 hover:bg-white/5 hover:border-white/20 hover:scale-[1.03]'
+      : 'border-white/5 text-gray-500 opacity-40 cursor-not-allowed'
+  }
+  return enabled
+    ? 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50 hover:border-gray-300 hover:scale-[1.03] shadow-sm'
+    : 'border-gray-100 text-gray-400 bg-gray-50 opacity-50 cursor-not-allowed'
+}
 </script>
 
 <template>
@@ -41,13 +54,7 @@ const canCompare = computed(() => (
       <button
         @click="void player.playSentenceSegment(currentSentence?.start_ms, currentSentence?.end_ms)"
         class="h-10 px-4 text-sm font-medium rounded-xl border flex items-center gap-2 transition-all duration-200"
-        :class="canPlayOriginal
-          ? (app.theme === 'dark'
-              ? 'border-white/10 text-gray-200 hover:bg-white/5 hover:border-white/20 hover:scale-[1.03]'
-              : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50 hover:border-gray-300 hover:scale-[1.03] shadow-sm')
-          : (app.theme === 'dark'
-              ? 'border-white/5 text-gray-500 opacity-40 cursor-not-allowed'
-              : 'border-gray-100 text-gray-400 bg-gray-50 opacity-50 cursor-not-allowed')"
+        :class="actionButtonClass(canPlayOriginal)"
         :disabled="!canPlayOriginal"
         :title="canPlayOriginal ? 'Play current sentence' : 'Current sentence has no timing data'">
         <Icon name="play" :size="15" />
@@ -69,13 +76,7 @@ const canCompare = computed(() => (
       <!-- Play Recording -->
       <button @click="void recording.playUserRecording()"
               class="h-10 px-4 text-sm font-medium rounded-xl border flex items-center gap-2 transition-all duration-200"
-              :class="canPlayRecording
-                ? (app.theme === 'dark'
-                    ? 'border-white/10 text-gray-200 hover:bg-white/5 hover:border-white/20 hover:scale-[1.03]'
-                    : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50 hover:border-gray-300 hover:scale-[1.03] shadow-sm')
-                : (app.theme === 'dark'
-                    ? 'border-white/5 text-gray-500 opacity-40 cursor-not-allowed'
-                    : 'border-gray-100 text-gray-400 bg-gray-50 opacity-50 cursor-not-allowed')"
+              :class="actionButtonClass(canPlayRecording)"
               :disabled="!canPlayRecording"
               title="Play your latest recording">
         <Icon name="play" :size="15" />
@@ -85,13 +86,7 @@ const canCompare = computed(() => (
       <!-- Contrast -->
       <button @click="void recording.playComparison()"
               class="h-10 px-4 text-sm font-medium rounded-xl border flex items-center gap-2 transition-all duration-200"
-              :class="canCompare
-                ? (app.theme === 'dark'
-                    ? 'border-white/10 text-gray-200 hover:bg-white/5 hover:border-white/20 hover:scale-[1.03]'
-                    : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50 hover:border-gray-300 hover:scale-[1.03] shadow-sm')
-                : (app.theme === 'dark'
-                    ? 'border-white/5 text-gray-500 opacity-40 cursor-not-allowed'
-                    : 'border-gray-100 text-gray-400 bg-gray-50 opacity-50 cursor-not-allowed')"
+              :class="actionButtonClass(canCompare)"
               :disabled="!canCompare"
               :title="canCompare ? 'Play original sentence, then your recording' : 'No recording available or current sentence has no timing data'">
         <Icon name="code-compare" :size="15" />

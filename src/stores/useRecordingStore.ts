@@ -8,6 +8,7 @@ import { useTranscriptStore } from './useTranscriptStore'
 
 interface RecordingResult {
   samples: number[]
+  sample_rate: number
 }
 
 export const useRecordingStore = defineStore('recording', () => {
@@ -19,6 +20,7 @@ export const useRecordingStore = defineStore('recording', () => {
   const userWaveformSamples = ref<number[]>([])
   const recordingSamples = ref<number[]>([])
   const activePlaybackMode = ref<'recording' | 'comparison' | null>(null)
+  const recordingSampleRate = ref(44100)
 
   let htmlAudio: HTMLAudioElement | null = null
   let playbackToken = 0
@@ -78,6 +80,7 @@ export const useRecordingStore = defineStore('recording', () => {
     try {
       const result = (await invoke('stop_recording')) as RecordingResult
       recordingSamples.value = result.samples
+      recordingSampleRate.value = result.sample_rate
 
       // Convert samples to audio URL for playback
       if (recordingSamples.value.length > 0) {
@@ -195,7 +198,7 @@ export const useRecordingStore = defineStore('recording', () => {
         const audioBuffer = audioContext.createBuffer(
           1,
           recordingSamples.value.length,
-          audioContext.sampleRate
+          recordingSampleRate.value
         )
         const channelData = new Float32Array(recordingSamples.value)
         audioBuffer.copyToChannel(channelData, 0)

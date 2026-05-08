@@ -7,6 +7,8 @@ use std::sync::{Arc, Mutex};
 static IS_RECORDING: AtomicBool = AtomicBool::new(false);
 static RECORDING_DATA: once_cell::sync::Lazy<Arc<Mutex<Vec<f32>>>> =
     once_cell::sync::Lazy::new(|| Arc::new(Mutex::new(Vec::new())));
+static RECORDING_SAMPLE_RATE: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new(44100);
 
 // Store stream in a static. Box<Stream> is not Send/Sync but we only access it from the main thread
 // via Tauri commands, which are always called from the main thread
@@ -53,6 +55,7 @@ pub fn start_recording() -> Result<(), String> {
     let sample_rate = config.sample_rate().0;
     let channels = config.channels();
 
+    RECORDING_SAMPLE_RATE.store(sample_rate, Ordering::SeqCst);
     RECORDING_DATA.lock().unwrap().clear();
 
     let data = RECORDING_DATA.clone();
@@ -147,15 +150,17 @@ pub fn stop_recording() -> Result<RecordingData, String> {
 
     let data = RECORDING_DATA.lock().unwrap();
     let samples = data.clone();
+    let sample_rate = RECORDING_SAMPLE_RATE.load(Ordering::SeqCst);
 
     info!("Recording stopped, {} samples captured", samples.len());
 
-    Ok(RecordingData { samples })
+    Ok(RecordingData { samples, sample_rate })
 }
 
 #[derive(serde::Serialize)]
 pub struct RecordingData {
     pub samples: Vec<f32>,
+    pub sample_rate: u32,
 }
 
 #[tauri::command]

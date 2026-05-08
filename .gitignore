@@ -21,7 +21,12 @@ dist-ssr
 *.ntvs*
 *.njsproj
 *.sln
-*.sw?</node_modules
+*.sw?
+
+# ML Models (downloaded at build time)
+src-tauri/models/*.bin
+src-tauri/models/*.onnx
+!src-tauri/models/wav2vec2-vocab.json</node_modules
 dist
 dist-ssr
 *.local

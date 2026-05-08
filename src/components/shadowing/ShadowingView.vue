@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onUnmounted } from 'vue'
+import { onMounted, onUnmounted } from 'vue'
 import { useAppStore } from '../../stores/useAppStore'
 import { usePlayerStore } from '../../stores/usePlayerStore'
 import { useRecordingStore } from '../../stores/useRecordingStore'
@@ -9,6 +9,10 @@ import ShadowingScriptFlow from './ShadowingScriptFlow.vue'
 const app = useAppStore()
 const player = usePlayerStore()
 const recording = useRecordingStore()
+
+onMounted(() => {
+  void player.clearSentenceSegment({ pausePlayback: true })
+})
 
 onUnmounted(() => {
   void player.clearSentenceSegment({ pausePlayback: true })

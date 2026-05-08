@@ -3,8 +3,7 @@ import { onMounted, onUnmounted } from 'vue'
 import { useAppStore } from '../../stores/useAppStore'
 import { usePlayerStore } from '../../stores/usePlayerStore'
 import PlayerCard from './PlayerCard.vue'
-import SubtitleToolbar from './SubtitleToolbar.vue'
-import SubtitleList from './SubtitleList.vue'
+import ShadowingScriptFlow from '../shadowing/ShadowingScriptFlow.vue'
 import Icon from '../Icon.vue'
 
 const app = useAppStore()
@@ -23,13 +22,11 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 </script>
 
 <template>
-  <div class="flex-1 flex flex-col h-full w-full relative transition-colors duration-500"
+  <div class="flex-1 flex flex-col lg:flex-row h-full w-full relative overflow-hidden transition-colors duration-500"
        :class="app.theme === 'dark' ? 'bg-dark-bg text-dark-text' : 'bg-light-bg text-light-text'">
     <!-- Listening Mode Content -->
-    <div class="flex-1 flex flex-col items-center overflow-hidden animate-fade-in pt-4 pb-10 px-8">
+    <div class="flex-1 min-w-0 flex flex-col items-center overflow-y-auto animate-fade-in pt-4 pb-6 px-4 sm:px-8 lg:pb-10">
       <PlayerCard />
-      <SubtitleToolbar />
-      <SubtitleList />
 
       <!-- Bottom CTA -->
       <div class="w-full max-w-3xl mt-4 flex-shrink-0 z-20">
@@ -41,5 +38,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
         </button>
       </div>
     </div>
+
+    <ShadowingScriptFlow />
   </div>
 </template>

@@ -1,40 +1,49 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useAppStore } from '../../stores/useAppStore'
 import { usePlayerStore } from '../../stores/usePlayerStore'
 import { type Sentence } from '../../stores/useTranscriptStore'
-import Icon from '../Icon.vue'
 
 const props = defineProps<{ item: Sentence; index: number }>()
 const emit = defineEmits<{ click: [index: number] }>()
 
 const app = useAppStore()
 const player = usePlayerStore()
+const isHovered = ref(false)
 
 const isActive = computed(() => props.index === player.currentIndex)
-const isDone = computed(() => props.index < player.currentIndex)
+const itemClass = computed(() => {
+  if (isActive.value) {
+    return app.theme === 'dark'
+      ? 'bg-brand-900/20 border-brand-500/30 opacity-100'
+      : 'bg-gray-200 border-transparent opacity-100'
+  }
+
+  if (isHovered.value) {
+    return app.theme === 'dark'
+      ? 'border-transparent bg-dark-highlight opacity-100'
+      : 'border-transparent bg-gray-200 opacity-100'
+  }
+
+  return app.theme === 'dark'
+    ? 'border-transparent opacity-50'
+    : 'border-transparent opacity-50'
+})
 </script>
 
 <template>
   <div @click="emit('click', index)"
+       @mouseenter="isHovered = true"
+       @mouseleave="isHovered = false"
        class="p-3 rounded-lg border cursor-pointer transition-all group flex gap-3 items-start"
-       :class="isActive
-          ? (app.theme === 'dark' ? 'bg-brand-900/20 border-brand-500/30' : 'bg-gray-200 border-transparent')
-          : (app.theme === 'dark' ? 'border-transparent hover:bg-dark-highlight opacity-50 hover:opacity-100' : 'border-transparent hover:bg-gray-200 opacity-50 hover:opacity-100')">
+       :class="itemClass">
 
     <!-- Status Icon -->
     <div class="mt-0.5">
-      <template v-if="isDone">
-        <Icon name="circle-check" class="text-green-500 text-xs" />
-      </template>
-      <template v-else-if="isActive">
-        <div class="w-2 h-2 rounded-full mt-1.5 animate-pulse"
-             :class="app.theme === 'dark' ? 'bg-brand-500' : 'bg-black'"></div>
-      </template>
-      <template v-else>
-        <div class="w-2 h-2 rounded-full mt-1.5"
-             :class="app.theme === 'dark' ? 'bg-gray-700' : 'bg-gray-300'"></div>
-      </template>
+      <div class="w-2 h-2 rounded-full mt-1.5"
+           :class="isActive
+              ? (app.theme === 'dark' ? 'bg-brand-500 animate-pulse' : 'bg-black animate-pulse')
+              : (app.theme === 'dark' ? 'bg-gray-700' : 'bg-gray-300')"></div>
     </div>
 
     <div>

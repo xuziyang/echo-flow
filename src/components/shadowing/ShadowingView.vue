@@ -17,7 +17,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="flex-1 flex flex-row overflow-hidden"
+  <div class="flex-1 flex flex-col lg:flex-row overflow-hidden"
        :class="app.theme === 'dark' ? 'bg-dark-bg' : 'bg-light-bg'">
     <ShadowingWorkArea />
     <ShadowingScriptFlow />

@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { useAppStore } from './useAppStore'
 
@@ -16,7 +16,20 @@ export const usePlayerStore = defineStore('player', () => {
   const app = useAppStore()
   const isPlaying = ref(false)
   const isLooping = ref(false)
-  const currentIndex = ref(0)
+  const listeningIndex = ref(0)
+  const shadowingIndex = ref(0)
+  const currentIndex = computed({
+    get() {
+      return app.mode === 'shadowing' ? shadowingIndex.value : listeningIndex.value
+    },
+    set(val: number) {
+      if (app.mode === 'shadowing') {
+        shadowingIndex.value = val
+      } else {
+        listeningIndex.value = val
+      }
+    },
+  })
   const volume = ref(80)
   const lastVolume = ref(80)
   const showEn = ref(true)

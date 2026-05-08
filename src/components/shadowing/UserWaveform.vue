@@ -2,14 +2,9 @@
 import { computed } from 'vue'
 import { useAppStore } from '../../stores/useAppStore'
 import { useRecordingStore } from '../../stores/useRecordingStore'
-import { usePlayerStore } from '../../stores/usePlayerStore'
-import { useTranscriptStore } from '../../stores/useTranscriptStore'
-import Icon from '../Icon.vue'
 
 const app = useAppStore()
 const recording = useRecordingStore()
-const player = usePlayerStore()
-const transcript = useTranscriptStore()
 
 // 100 bars, matching ui/index.html: Math.random() * 80 + 10 → 10%–90%
 const recordingBars = Array.from({ length: 100 }, (_, index) => ({
@@ -19,11 +14,6 @@ const recordingBars = Array.from({ length: 100 }, (_, index) => ({
 }))
 
 const hasRecording = computed(() => Boolean(recording.userAudioUrl))
-const currentSentence = computed(() => transcript.sentences[player.currentIndex])
-const canCompare = computed(() => (
-  hasRecording.value
-  && player.canPlaySentenceSegment(currentSentence.value?.start_ms, currentSentence.value?.end_ms)
-))
 </script>
 
 <template>
@@ -34,28 +24,7 @@ const canCompare = computed(() => (
             :class="app.theme === 'dark' ? 'bg-zinc-800 text-zinc-400 border border-zinc-700' : 'bg-white text-gray-500 border border-gray-200'">You</span>
     </div>
 
-    <div class="absolute top-4 right-8 z-10 flex items-center gap-2">
-      <template v-if="hasRecording && !recording.isRecording">
-        <button
-              @click="void recording.playUserRecording()"
-              class="px-3 py-1.5 text-xs font-medium rounded border transition-colors flex items-center gap-2"
-              :class="app.theme === 'dark' ? 'bg-zinc-100/10 hover:bg-zinc-100/20 text-zinc-100 border-zinc-700' : 'bg-white hover:bg-gray-100 text-black border-gray-300'"
-              title="Play your latest recording">
-        <Icon name="play" /> Play Recording
-      </button>
 
-      <button
-              @click="void recording.playComparison()"
-              class="px-3 py-1.5 text-xs font-medium rounded border transition-colors flex items-center gap-2"
-              :class="canCompare
-                ? (app.theme === 'dark' ? 'bg-zinc-200 hover:bg-white text-black border-zinc-200' : 'bg-black hover:bg-gray-800 text-white border-black')
-                : (app.theme === 'dark' ? 'bg-white/5 text-gray-500 border-white/10 cursor-not-allowed' : 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed')"
-              :disabled="!canCompare"
-              :title="canCompare ? 'Play original sentence, then your recording' : 'Current sentence has no timing data'">
-        <Icon name="code-compare" /> Contrast
-      </button>
-      </template>
-    </div>
 
     <!-- 录音中动画 -->
     <div v-if="recording.isRecording" class="w-full h-24 px-6 md:px-10 flex items-center justify-center">

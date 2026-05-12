@@ -19,9 +19,6 @@ pub enum SubtitleError {
     #[error("ffmpeg returned malformed s16le PCM: odd byte length {0}")]
     InvalidPcmLength(usize),
 
-    #[error("model file does not exist: {0}")]
-    ModelNotFound(String),
-
     #[error("ASR expects 16kHz mono audio, got {sample_rate}Hz/{channels} channel(s)")]
     InvalidAudioFormat { sample_rate: u32, channels: u16 },
 

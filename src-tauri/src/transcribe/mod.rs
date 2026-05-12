@@ -28,11 +28,7 @@ pub use aligner::{Aligner, AlignerConfig};
 pub use asr::{Asr, AsrConfig};
 pub use audio::Audio;
 pub use error::SubtitleError;
-pub use types::{
-    AudioSamples, ProcessingResult, Subtitle, Transcript, TranscriptSegment,
-    FrontendTranscriptSegment,
-};
-pub use writer::write_srt;
+pub use types::{FrontendTranscriptSegment, ProcessingResult};
 
 // Re-export frontend-compatible types (旧接口保持兼容)
 pub use types::{
@@ -50,14 +46,6 @@ pub struct SubtitlePipeline {
 }
 
 impl SubtitlePipeline {
-    pub fn new() -> Self {
-        Self {
-            audio: Audio::new(),
-            asr: Asr::new(),
-            aligner: Aligner::new(),
-        }
-    }
-
     pub fn with_config(
         whisper_model_path: PathBuf,
         vad_model_path: PathBuf,
@@ -77,18 +65,6 @@ impl SubtitlePipeline {
                 vocab_path: align_vocab_path,
             }),
         }
-    }
-
-    pub fn process(&self, input: &Path) -> Result<ProcessingResult, SubtitleError> {
-        let audio = self.audio.load(input)?;
-        let transcript = self.asr.recognize(&audio)?;
-        let subtitles = self.aligner.align(&audio, &transcript)?;
-
-        Ok(ProcessingResult {
-            audio,
-            transcript,
-            subtitles,
-        })
     }
 
     pub fn process_with_progress<F>(&self, input: &Path, mut progress: F) -> Result<ProcessingResult, SubtitleError>

@@ -72,6 +72,15 @@ struct AlignedChar {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+struct AlignedWord {
+    start_original: usize,
+    end_original: usize,
+    start_ms: u64,
+    end_ms: u64,
+    score: f32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 struct TokenSegment {
     start: usize,
     end: usize,
@@ -232,7 +241,7 @@ fn align_segment(
     segment: &TranscriptSegment,
     models: &mut AlignerModels,
 ) -> Result<Option<Vec<AlignedChar>>, SubtitleError> {
-    let clean = clean_transcript(&segment.text);
+    let clean = clean_transcript(&segment.text, &models.vocab);
     if clean.chars.is_empty() || segment.end_ms <= segment.start_ms {
         return Ok(None);
     }
@@ -254,7 +263,7 @@ fn align_segment(
         return Ok(None);
     }
 
-    let (emission, tokens) = tokens_for_clean_transcript(emission, &clean.chars, &models.vocab);
+    let tokens = tokens_for_clean_transcript(&clean.chars, &models.vocab);
     let trellis = get_trellis(&emission, &tokens, models.vocab.blank_id);
     let Some(path) = backtrack(&trellis, &emission, &tokens, models.vocab.blank_id) else {
         return Ok(None);
@@ -340,7 +349,7 @@ fn shape_dim_to_usize(value: i64, name: &str) -> Result<usize, SubtitleError> {
     })
 }
 
-fn clean_transcript(text: &str) -> CleanTranscript {
+fn clean_transcript(text: &str, vocab: &AlignmentVocab) -> CleanTranscript {
     let chars = text.chars().collect::<Vec<_>>();
     let leading = chars.iter().take_while(|ch| ch.is_whitespace()).count();
     let trailing = chars
@@ -357,12 +366,26 @@ fn clean_transcript(text: &str) -> CleanTranscript {
             continue;
         }
 
-        if ch.is_whitespace() {
-            clean_chars.push('|');
+        let clean_ch = if ch.is_whitespace() {
+            '|'
         } else {
-            clean_chars.push(ch.to_ascii_lowercase());
+            ch.to_ascii_lowercase()
+        };
+        if !vocab.token_to_id.contains_key(&clean_ch) {
+            continue;
         }
+
+        if clean_ch == '|' && (clean_chars.is_empty() || clean_chars.last() == Some(&'|')) {
+            continue;
+        }
+
+        clean_chars.push(clean_ch);
         char_to_original.push(index);
+    }
+
+    if clean_chars.last() == Some(&'|') {
+        clean_chars.pop();
+        char_to_original.pop();
     }
 
     CleanTranscript {
@@ -371,33 +394,13 @@ fn clean_transcript(text: &str) -> CleanTranscript {
     }
 }
 
-fn tokens_for_clean_transcript(
-    mut emission: Vec<Vec<f32>>,
-    chars: &[char],
-    vocab: &AlignmentVocab,
-) -> (Vec<Vec<f32>>, Vec<usize>) {
-    let needs_wildcard = chars.iter().any(|ch| !vocab.token_to_id.contains_key(ch));
-    let wildcard_id = if needs_wildcard {
-        for frame in &mut emission {
-            let wildcard_score = frame
-                .iter()
-                .enumerate()
-                .filter(|(id, _)| *id != vocab.blank_id)
-                .map(|(_, score)| *score)
-                .fold(f32::NEG_INFINITY, f32::max);
-            frame.push(wildcard_score);
-        }
-        emission.first().map(|frame| frame.len() - 1).unwrap_or(0)
-    } else {
-        0
-    };
-
+fn tokens_for_clean_transcript(chars: &[char], vocab: &AlignmentVocab) -> Vec<usize> {
     let tokens = chars
         .iter()
-        .map(|ch| vocab.token_to_id.get(ch).copied().unwrap_or(wildcard_id))
+        .filter_map(|ch| vocab.token_to_id.get(ch).copied())
         .collect();
 
-    (emission, tokens)
+    tokens
 }
 
 fn timed_sentences(
@@ -407,6 +410,10 @@ fn timed_sentences(
     fallback: (u64, u64),
 ) -> Vec<TimedSentence> {
     let spans = sentence_spans(language, &segment.text);
+    let aligned_words = aligned_chars
+        .as_deref()
+        .map(|chars| aligned_words(&segment.text, chars))
+        .unwrap_or_default();
     if spans.is_empty() {
         return vec![TimedSentence {
             text: segment.text.clone(),
@@ -418,7 +425,7 @@ fn timed_sentences(
     let mut timed = spans
         .into_iter()
         .map(|span| {
-            let (start_ms, end_ms) = sentence_time(&span, aligned_chars.as_deref());
+            let (start_ms, end_ms) = sentence_time(&span, &aligned_words, aligned_chars.as_deref());
             TimedSentence {
                 text: span.text,
                 start_ms,
@@ -497,8 +504,23 @@ fn byte_to_char_index(offsets: &[usize], byte_index: usize) -> usize {
 
 fn sentence_time(
     span: &SentenceSpan,
+    aligned_words: &[AlignedWord],
     aligned_chars: Option<&[AlignedChar]>,
 ) -> (Option<u64>, Option<u64>) {
+    let mut word_start_ms = None;
+    let mut word_end_ms = None;
+    for word in aligned_words {
+        if word.end_original <= span.start || word.start_original >= span.end {
+            continue;
+        }
+        word_start_ms =
+            Some(word_start_ms.map_or(word.start_ms, |start: u64| start.min(word.start_ms)));
+        word_end_ms = Some(word_end_ms.map_or(word.end_ms, |end: u64| end.max(word.end_ms)));
+    }
+    if word_start_ms.is_some() && word_end_ms.is_some() {
+        return (word_start_ms, word_end_ms);
+    }
+
     let Some(aligned_chars) = aligned_chars else {
         return (None, None);
     };
@@ -515,6 +537,61 @@ fn sentence_time(
     }
 
     (start_ms, end_ms)
+}
+
+fn aligned_words(text: &str, aligned_chars: &[AlignedChar]) -> Vec<AlignedWord> {
+    let chars = text.chars().collect::<Vec<_>>();
+    let mut words = Vec::new();
+    let mut start = None;
+
+    for (index, ch) in chars.iter().copied().enumerate() {
+        if ch.is_whitespace() {
+            if let Some(start_index) = start.take() {
+                push_aligned_word(&mut words, start_index, index, aligned_chars);
+            }
+        } else if start.is_none() {
+            start = Some(index);
+        }
+    }
+
+    if let Some(start_index) = start {
+        push_aligned_word(&mut words, start_index, chars.len(), aligned_chars);
+    }
+
+    words
+}
+
+fn push_aligned_word(
+    words: &mut Vec<AlignedWord>,
+    start_original: usize,
+    end_original: usize,
+    aligned_chars: &[AlignedChar],
+) {
+    let mut start_ms = None;
+    let mut end_ms = None;
+    let mut score_sum = 0.0;
+    let mut score_count = 0;
+
+    for aligned in aligned_chars {
+        if aligned.original_index < start_original || aligned.original_index >= end_original {
+            continue;
+        }
+        start_ms =
+            Some(start_ms.map_or(aligned.start_ms, |start: u64| start.min(aligned.start_ms)));
+        end_ms = Some(end_ms.map_or(aligned.end_ms, |end: u64| end.max(aligned.end_ms)));
+        score_sum += aligned.score;
+        score_count += 1;
+    }
+
+    if let (Some(start_ms), Some(end_ms)) = (start_ms, end_ms) {
+        words.push(AlignedWord {
+            start_original,
+            end_original,
+            start_ms,
+            end_ms,
+            score: score_sum / score_count as f32,
+        });
+    }
 }
 
 fn interpolate_sentence_times(sentences: &mut [TimedSentence]) {
@@ -624,11 +701,7 @@ fn backtrack(
         let stayed = trellis[t - 1][j] + emission[t - 1][blank_id];
         let changed = trellis[t - 1][j - 1] + emission[t - 1][tokens[j - 1]];
         let is_changed = changed > stayed;
-        let token_id = if is_changed {
-            tokens[j - 1]
-        } else {
-            blank_id
-        };
+        let token_id = if is_changed { tokens[j - 1] } else { blank_id };
         path.push(Point {
             token_index: if is_changed { j - 1 } else { usize::MAX },
             time_index: t - 1,
@@ -680,4 +753,112 @@ fn log_softmax(values: &[f32]) -> Vec<f32> {
     let sum_exp = values.iter().map(|value| (*value - max).exp()).sum::<f32>();
     let log_sum_exp = max + sum_exp.ln();
     values.iter().map(|value| *value - log_sum_exp).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_vocab() -> AlignmentVocab {
+        let token_to_id = [('a', 1), ('b', 2), ('c', 3), ('d', 4), ('|', 5)]
+            .into_iter()
+            .collect();
+
+        AlignmentVocab {
+            token_to_id,
+            blank_id: 0,
+        }
+    }
+
+    #[test]
+    fn clean_transcript_ignores_punctuation_and_unknown_chars() {
+        let clean = clean_transcript(" Ab, c! 你 d. ", &test_vocab());
+
+        assert_eq!(clean.chars, vec!['a', 'b', '|', 'c', '|', 'd']);
+        assert_eq!(clean.char_to_original, vec![1, 2, 4, 5, 7, 10]);
+
+        let clean = clean_transcript("你 ab", &test_vocab());
+
+        assert_eq!(clean.chars, vec!['a', 'b']);
+        assert_eq!(clean.char_to_original, vec![2, 3]);
+    }
+
+    #[test]
+    fn aligned_words_groups_chars_across_skipped_punctuation() {
+        let aligned_chars = vec![
+            AlignedChar {
+                original_index: 0,
+                start_ms: 100,
+                end_ms: 140,
+                score: 0.9,
+            },
+            AlignedChar {
+                original_index: 1,
+                start_ms: 140,
+                end_ms: 180,
+                score: 0.8,
+            },
+            AlignedChar {
+                original_index: 3,
+                start_ms: 180,
+                end_ms: 220,
+                score: 0.7,
+            },
+            AlignedChar {
+                original_index: 5,
+                start_ms: 300,
+                end_ms: 340,
+                score: 0.6,
+            },
+        ];
+
+        let words = aligned_words("ab,c d", &aligned_chars);
+
+        assert_eq!(
+            words,
+            vec![
+                AlignedWord {
+                    start_original: 0,
+                    end_original: 4,
+                    start_ms: 100,
+                    end_ms: 220,
+                    score: 0.8,
+                },
+                AlignedWord {
+                    start_original: 5,
+                    end_original: 6,
+                    start_ms: 300,
+                    end_ms: 340,
+                    score: 0.6,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn sentence_time_prefers_word_boundaries() {
+        let span = SentenceSpan {
+            start: 1,
+            end: 4,
+            text: "b,c".to_owned(),
+        };
+        let aligned_words = vec![AlignedWord {
+            start_original: 0,
+            end_original: 4,
+            start_ms: 100,
+            end_ms: 220,
+            score: 0.8,
+        }];
+        let aligned_chars = vec![AlignedChar {
+            original_index: 1,
+            start_ms: 140,
+            end_ms: 180,
+            score: 0.8,
+        }];
+
+        assert_eq!(
+            sentence_time(&span, &aligned_words, Some(&aligned_chars)),
+            (Some(100), Some(220))
+        );
+    }
 }

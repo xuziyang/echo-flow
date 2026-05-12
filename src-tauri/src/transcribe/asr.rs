@@ -116,6 +116,7 @@ impl Asr {
             &voice_segments,
             audio.sample_rate,
             self.config.chunk_size_secs,
+            audio.samples.len(),
         );
 
         if chunks.is_empty() {

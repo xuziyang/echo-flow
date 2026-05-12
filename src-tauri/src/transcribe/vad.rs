@@ -13,6 +13,7 @@ const VAD_INPUT_SAMPLES: usize = VAD_CONTEXT_SAMPLES + VAD_WINDOW_SAMPLES;
 const VAD_STATE_SIZE: usize = 2 * 128;
 const MIN_SILENCE_MS: u64 = 100;
 const MIN_SPEECH_MS: u64 = 250;
+const CHUNK_PADDING_MS: u64 = 250;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct VoiceSegment {
@@ -130,6 +131,7 @@ pub(crate) fn merge_voice_segments(
     segments: &[VoiceSegment],
     sample_rate: u32,
     chunk_size_secs: f32,
+    total_samples: usize,
 ) -> Vec<AudioChunk> {
     if segments.is_empty() {
         return Vec::new();
@@ -159,7 +161,38 @@ pub(crate) fn merge_voice_segments(
         end_sample: current_end,
     });
 
+    pad_audio_chunks(&mut chunks, sample_rate, total_samples);
     chunks
+}
+
+fn pad_audio_chunks(chunks: &mut [AudioChunk], sample_rate: u32, total_samples: usize) {
+    if chunks.is_empty() {
+        return;
+    }
+
+    let padding_samples = ms_to_sample(CHUNK_PADDING_MS, sample_rate);
+    let mut padded = chunks
+        .iter()
+        .map(|chunk| AudioChunk {
+            start_sample: chunk.start_sample.saturating_sub(padding_samples),
+            end_sample: chunk
+                .end_sample
+                .saturating_add(padding_samples)
+                .min(total_samples),
+        })
+        .collect::<Vec<_>>();
+
+    for index in 0..padded.len().saturating_sub(1) {
+        if padded[index].end_sample <= padded[index + 1].start_sample {
+            continue;
+        }
+
+        let split = (chunks[index].end_sample + chunks[index + 1].start_sample) / 2;
+        padded[index].end_sample = split.max(padded[index].start_sample).min(total_samples);
+        padded[index + 1].start_sample = split.min(padded[index + 1].end_sample);
+    }
+
+    chunks.clone_from_slice(&padded);
 }
 
 fn push_voice_segment(
@@ -173,5 +206,76 @@ fn push_voice_segment(
             start_sample,
             end_sample,
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn merge_voice_segments_pads_chunk_boundaries() {
+        let segments = vec![VoiceSegment {
+            start_sample: 16_000,
+            end_sample: 32_000,
+        }];
+
+        let chunks = merge_voice_segments(&segments, 16_000, 30.0, 64_000);
+
+        assert_eq!(
+            chunks,
+            vec![AudioChunk {
+                start_sample: 12_000,
+                end_sample: 36_000,
+            }]
+        );
+    }
+
+    #[test]
+    fn merge_voice_segments_clamps_padding_to_audio_bounds() {
+        let segments = vec![VoiceSegment {
+            start_sample: 1_000,
+            end_sample: 15_000,
+        }];
+
+        let chunks = merge_voice_segments(&segments, 16_000, 30.0, 16_000);
+
+        assert_eq!(
+            chunks,
+            vec![AudioChunk {
+                start_sample: 0,
+                end_sample: 16_000,
+            }]
+        );
+    }
+
+    #[test]
+    fn merge_voice_segments_keeps_padded_chunks_non_overlapping() {
+        let segments = vec![
+            VoiceSegment {
+                start_sample: 0,
+                end_sample: 10_000,
+            },
+            VoiceSegment {
+                start_sample: 12_000,
+                end_sample: 22_000,
+            },
+        ];
+
+        let chunks = merge_voice_segments(&segments, 16_000, 1.0, 30_000);
+
+        assert_eq!(
+            chunks,
+            vec![
+                AudioChunk {
+                    start_sample: 0,
+                    end_sample: 11_000,
+                },
+                AudioChunk {
+                    start_sample: 11_000,
+                    end_sample: 26_000,
+                },
+            ]
+        );
     }
 }

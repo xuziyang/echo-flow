@@ -24,6 +24,7 @@ function selectSentence(index: number, sentence: Sentence) {
 }
 
 watch(() => player.positionMs, (positionMs) => {
+  if (app.mode !== 'listening') return
   if (player.seeking || !transcript.sentences.length) return
 
   const index = getCurrentSubtitleIndex(positionMs, transcript.sentences)

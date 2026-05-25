@@ -33,7 +33,8 @@ const transcript = useTranscriptStore()
                 class="p-2 rounded-full transition-colors flex-shrink-0"
                 :class="app.theme === 'dark' ? 'hover:bg-white/10 text-gray-500 hover:text-white' : 'hover:bg-black/5 text-gray-400 hover:text-black'"
                 :disabled="player.currentIndex === 0"
-                :style="player.currentIndex === 0 ? 'opacity: 0.3; cursor: not-allowed;' : ''">
+                :style="player.currentIndex === 0 ? 'opacity: 0.3; cursor: not-allowed;' : ''"
+                title="← Previous sentence">
           <Icon name="chevron-left" class="text-lg" />
         </button>
 
@@ -47,7 +48,8 @@ const transcript = useTranscriptStore()
                 class="p-2 rounded-full transition-colors flex-shrink-0"
                 :class="app.theme === 'dark' ? 'hover:bg-white/10 text-gray-500 hover:text-white' : 'hover:bg-black/5 text-gray-400 hover:text-black'"
                 :disabled="player.currentIndex === transcript.sentences.length - 1"
-                :style="player.currentIndex === transcript.sentences.length - 1 ? 'opacity: 0.3; cursor: not-allowed;' : ''">
+                :style="player.currentIndex === transcript.sentences.length - 1 ? 'opacity: 0.3; cursor: not-allowed;' : ''"
+                title="→ Next sentence">
           <Icon name="chevron-right" class="text-lg" />
         </button>
       </div>

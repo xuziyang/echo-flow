@@ -56,7 +56,7 @@ const actionButtonClass = (enabled: boolean) => {
         class="h-10 px-4 text-sm font-medium rounded-xl border flex items-center gap-2 transition-all duration-200"
         :class="actionButtonClass(canPlayOriginal)"
         :disabled="!canPlayOriginal"
-        :title="canPlayOriginal ? 'Play current sentence' : 'Current sentence has no timing data'">
+        title="Enter — Play current sentence">
         <Icon name="play" :size="15" />
         Original
       </button>
@@ -69,7 +69,8 @@ const actionButtonClass = (enabled: boolean) => {
                    ? 'bg-red-500 text-white shadow-red-500/25 hover:bg-red-600 hover:scale-110'
                    : (app.theme === 'dark'
                       ? 'bg-sky-500 text-white shadow-sky-500/25 hover:bg-sky-400 hover:scale-110'
-                      : 'bg-sky-500 text-white shadow-sky-500/20 hover:bg-sky-600 hover:scale-110'))">
+                      : 'bg-sky-500 text-white shadow-sky-500/20 hover:bg-sky-600 hover:scale-110'))"
+              title="Space — Start/stop recording">
         <Icon :name="recording.isRecording ? 'stop' : 'microphone'" />
       </button>
 
@@ -78,7 +79,7 @@ const actionButtonClass = (enabled: boolean) => {
               class="h-10 px-4 text-sm font-medium rounded-xl border flex items-center gap-2 transition-all duration-200"
               :class="actionButtonClass(canPlayRecording)"
               :disabled="!canPlayRecording"
-              title="Play your latest recording">
+              title="R — Play your latest recording">
         <Icon name="play" :size="15" />
         Recording
       </button>
@@ -88,7 +89,7 @@ const actionButtonClass = (enabled: boolean) => {
               class="h-10 px-4 text-sm font-medium rounded-xl border flex items-center gap-2 transition-all duration-200"
               :class="actionButtonClass(canCompare)"
               :disabled="!canCompare"
-              :title="canCompare ? 'Play original sentence, then your recording' : 'No recording available or current sentence has no timing data'">
+              title="C — Play original then recording">
         <Icon name="code-compare" :size="15" />
         Contrast
       </button>

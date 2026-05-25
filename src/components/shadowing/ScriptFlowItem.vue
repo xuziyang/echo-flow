@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import { useAppStore } from '../../stores/useAppStore'
 import { usePlayerStore } from '../../stores/usePlayerStore'
 import { type Sentence } from '../../stores/useTranscriptStore'
@@ -9,20 +9,12 @@ const emit = defineEmits<{ click: [index: number] }>()
 
 const app = useAppStore()
 const player = usePlayerStore()
-const isHovered = ref(false)
-
 const isActive = computed(() => props.index === player.currentIndex)
 const itemClass = computed(() => {
   if (isActive.value) {
     return app.theme === 'dark'
       ? 'bg-brand-900/20 border-brand-500/30 opacity-100'
       : 'bg-gray-200 border-transparent opacity-100'
-  }
-
-  if (isHovered.value) {
-    return app.theme === 'dark'
-      ? 'border-transparent bg-dark-highlight opacity-100'
-      : 'border-transparent bg-gray-200 opacity-100'
   }
 
   return app.theme === 'dark'
@@ -33,8 +25,7 @@ const itemClass = computed(() => {
 
 <template>
   <div @click="emit('click', index)"
-       @mouseenter="isHovered = true"
-       @mouseleave="isHovered = false"
+
        class="p-3 rounded-lg border cursor-pointer transition-all group flex gap-3 items-start"
        :class="itemClass">
 

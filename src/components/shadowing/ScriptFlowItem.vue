@@ -13,13 +13,13 @@ const isActive = computed(() => props.index === player.currentIndex)
 const itemClass = computed(() => {
   if (isActive.value) {
     return app.theme === 'dark'
-      ? 'bg-brand-900/20 border-brand-500/30 opacity-100'
-      : 'bg-gray-200 border-transparent opacity-100'
+      ? 'bg-brand-900/20 border-brand-500/30 opacity-100 shadow-md shadow-brand-500/10'
+      : 'bg-gray-200 border-transparent opacity-100 shadow-md shadow-black/5'
   }
 
   return app.theme === 'dark'
-    ? 'border-transparent opacity-50'
-    : 'border-transparent opacity-50'
+    ? 'border-transparent opacity-50 hover:opacity-85 hover:bg-white/5 hover:shadow-sm hover:shadow-white/5'
+    : 'border-transparent opacity-50 hover:opacity-85 hover:bg-gray-100 hover:shadow-sm hover:shadow-black/5'
 })
 </script>
 
@@ -38,7 +38,7 @@ const itemClass = computed(() => {
     </div>
 
     <div>
-      <p class="text-sm leading-snug transition-colors"
+      <p class="text-sm leading-snug transition-colors group-hover:font-medium"
          :class="isActive
             ? (app.theme === 'dark' ? 'text-white font-medium' : 'text-black font-medium')
             : (app.theme === 'dark' ? 'text-gray-400' : 'text-gray-500')">

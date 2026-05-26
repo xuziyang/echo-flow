@@ -7,9 +7,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const audioOutputDevices = ref<MediaDeviceInfo[]>([])
   const selectedInputId = ref('')
   const selectedOutputId = ref('')
+  const modelDirectory = ref('')
 
-  function setInputDevice(id: string) { selectedInputId.value = id }
-  function setOutputDevice(id: string) { selectedOutputId.value = id }
-
-  return { audioInputDevices, audioOutputDevices, selectedInputId, selectedOutputId, setInputDevice, setOutputDevice }
+  return { audioInputDevices, audioOutputDevices, selectedInputId, selectedOutputId, modelDirectory }
 })

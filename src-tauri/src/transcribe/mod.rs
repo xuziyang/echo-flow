@@ -37,6 +37,8 @@ pub use types::{
 
 static LAST_TRANSCRIBE_JOB_ID: AtomicU64 = AtomicU64::new(0);
 
+const DEFAULT_MODEL_CACHE_DIR: &str = ".cache/echo-flow/models";
+
 /// SubtitlePipeline - 完整的字幕生成 pipeline
 #[derive(Debug, Default, Clone)]
 pub struct SubtitlePipeline {
@@ -92,11 +94,11 @@ impl SubtitlePipeline {
 }
 
 fn resolve_model_path(
-    user_provided: Option<String>,
-    default_paths: &[&str],
+    user_provided: Option<&str>,
+    default_paths: &[String],
 ) -> Result<PathBuf, String> {
     if let Some(path) = user_provided {
-        let p = PathBuf::from(&path);
+        let p = PathBuf::from(path);
         if p.exists() {
             return Ok(p);
         }
@@ -119,40 +121,50 @@ pub fn transcribe_audio(
     window: tauri::Window,
     audio_path: String,
     model_path: Option<String>,
+    model_dir: Option<String>,
     job_id: Option<u64>,
 ) -> Result<u64, String> {
     let home = std::env::var("HOME").unwrap_or_default();
-    let cache_models = format!("{}/.cache/echo-flow/models", home);
+    let cache_dir = match model_dir {
+        Some(ref dir) if !dir.is_empty() => {
+            PathBuf::from(if dir.starts_with('~') {
+                dir.replacen('~', &home, 1)
+            } else {
+                dir.clone()
+            })
+        }
+        _ => PathBuf::from(format!("{}/{}", home, DEFAULT_MODEL_CACHE_DIR)),
+    };
 
     // 解析 Whisper 模型路径
-    let whisper_model = resolve_model_path(model_path.clone(), &[
-        &format!("{}/ggml-base.en.bin", cache_models),
-        &format!("{}/ggml-small.en.bin", cache_models),
-        "./models/ggml-base.en.bin",
-        "./models/ggml-small.en.bin",
-        &format!("{}/.cache/whisper/ggml-base.en.bin", home),
-        &format!("{}/.cache/whisper/ggml-small.en.bin", home),
+    let whisper_model = resolve_model_path(model_path.as_deref(), &[
+        cache_dir.join("ggml-base.en.bin").to_string_lossy().into_owned(),
+        cache_dir.join("ggml-small.en.bin").to_string_lossy().into_owned(),
+        "./models/ggml-base.en.bin".to_string(),
+        "./models/ggml-small.en.bin".to_string(),
+        format!("{}/.cache/whisper/ggml-base.en.bin", home),
+        format!("{}/.cache/whisper/ggml-small.en.bin", home),
     ])?;
 
     // VAD 模型路径
     let vad_model = resolve_model_path(None, &[
-        &format!("{}/silero_vad.onnx", cache_models),
-        "./models/silero_vad.onnx",
-        &format!("{}/.cargo/registry/src/*/whisperx-rs-*/models/silero_vad.onnx", home),
+        cache_dir.join("silero_vad.onnx").to_string_lossy().into_owned(),
+        "./models/silero_vad.onnx".to_string(),
+        format!("{}/.cargo/registry/src/*/whisperx-rs-*/models/silero_vad.onnx", home),
     ])?;
 
     // Wav2Vec2 模型路径
     let align_model = resolve_model_path(None, &[
-        &format!("{}/wav2vec2-base-en.onnx", cache_models),
-        "./models/wav2vec2-base-en.onnx",
-        &format!("{}/.cargo/registry/src/*/whisperx-rs-*/models/wav2vec2-base-en.onnx", home),
+        cache_dir.join("wav2vec2-base-en.onnx").to_string_lossy().into_owned(),
+        "./models/wav2vec2-base-en.onnx".to_string(),
+        format!("{}/.cargo/registry/src/*/whisperx-rs-*/models/wav2vec2-base-en.onnx", home),
     ])?;
 
     // Wav2Vec2 vocab 路径
     let align_vocab = resolve_model_path(None, &[
-        &format!("{}/wav2vec2-vocab.json", cache_models),
-        "./models/wav2vec2-vocab.json",
-        &format!("{}/.cargo/registry/src/*/whisperx-rs-*/models/wav2vec2-vocab.json", home),
+        cache_dir.join("wav2vec2-vocab.json").to_string_lossy().into_owned(),
+        "./models/wav2vec2-vocab.json".to_string(),
+        format!("{}/.cargo/registry/src/*/whisperx-rs-*/models/wav2vec2-vocab.json", home),
     ])?;
 
     log::info!(

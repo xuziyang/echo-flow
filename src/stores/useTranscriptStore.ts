@@ -3,6 +3,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { useAppStore } from './useAppStore'
+import { useSettingsStore } from './useSettingsStore'
 
 export interface Sentence {
   id: number
@@ -169,6 +170,7 @@ export const useTranscriptStore = defineStore('transcript', () => {
 
   /** 开始转写音频文件（自动调用） */
   async function startTranscribe(audioPath: string, modelPath?: string): Promise<void> {
+    const settings = useSettingsStore()
     const jobId = nextTranscribeJobId++
     console.info('[transcribe] start', { jobId, audioPath })
     currentAudioPath.value = audioPath
@@ -183,6 +185,7 @@ export const useTranscriptStore = defineStore('transcript', () => {
       await invoke<number>('transcribe_audio', {
         audioPath,
         modelPath: modelPath ?? null,
+        modelDir: settings.modelDirectory || null,
         jobId,
       })
     } catch (err) {

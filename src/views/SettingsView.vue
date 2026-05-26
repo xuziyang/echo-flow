@@ -61,6 +61,18 @@ const settings = useSettingsStore()
           </div>
           <p class="mt-2 text-xs text-gray-500">Note: Output device selection depends on browser support.</p>
         </div>
+
+        <!-- Model Directory -->
+        <div>
+          <label class="block text-xs font-bold uppercase tracking-wider mb-2"
+                 :class="app.theme === 'dark' ? 'text-brand-400' : 'text-gray-500'">Model Directory</label>
+          <input v-model="settings.modelDirectory"
+                 type="text"
+                 placeholder="/home/user/.cache/echo-flow/models"
+                 class="w-full p-3 rounded-lg border focus:ring-2 focus:ring-brand-500 focus:border-transparent outline-none transition-all"
+                 :class="app.theme === 'dark' ? 'bg-dark-bg border-gray-700 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-black placeholder-gray-400'" />
+          <p class="mt-2 text-xs text-gray-500">Custom directory for AI models (Whisper, VAD, Aligner). Use ~ for home directory. Leave empty to use default.</p>
+        </div>
       </div>
 
       <div class="mt-8 pt-6 border-t flex justify-end" :class="app.theme === 'dark' ? 'border-gray-800' : 'border-gray-200'">

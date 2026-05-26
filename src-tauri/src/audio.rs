@@ -100,8 +100,8 @@ impl AudioPlayer {
         self.stop_internal();
 
         let file = File::open(path).map_err(|e| format!("无法打开文件: {}", e))?;
-        let source = Decoder::new(BufReader::new(file))
-            .map_err(|e| format!("无法解码音频: {}", e))?;
+        let source =
+            Decoder::new(BufReader::new(file)).map_err(|e| format!("无法解码音频: {}", e))?;
 
         let sample_rate = source.sample_rate();
         let channels = source.channels() as u16;
@@ -114,8 +114,17 @@ impl AudioPlayer {
             0
         };
 
-        let step = if all_samples.is_empty() { 1 } else { (all_samples.len() - 1) / 200.max(1) };
-        let waveform: Vec<f32> = all_samples.iter().step_by(step.max(1)).copied().take(200).collect();
+        let step = if all_samples.is_empty() {
+            1
+        } else {
+            (all_samples.len() - 1) / 200.max(1)
+        };
+        let waveform: Vec<f32> = all_samples
+            .iter()
+            .step_by(step.max(1))
+            .copied()
+            .take(200)
+            .collect();
 
         *self.samples.lock().unwrap() = all_samples;
         *self.sample_rate.lock().unwrap() = sample_rate;
@@ -162,8 +171,8 @@ impl AudioPlayer {
         self.stop_internal();
 
         let file = File::open(path).map_err(|e| format!("无法打开文件: {}", e))?;
-        let source = Decoder::new(BufReader::new(file))
-            .map_err(|e| format!("无法解码音频: {}", e))?;
+        let source =
+            Decoder::new(BufReader::new(file)).map_err(|e| format!("无法解码音频: {}", e))?;
 
         let sample_rate = source.sample_rate();
         let channels = source.channels() as u16;
@@ -178,8 +187,17 @@ impl AudioPlayer {
             0
         };
 
-        let step = if all_samples.is_empty() { 1 } else { (all_samples.len() - 1) / 200.max(1) };
-        let waveform: Vec<f32> = all_samples.iter().step_by(step.max(1)).copied().take(200).collect();
+        let step = if all_samples.is_empty() {
+            1
+        } else {
+            (all_samples.len() - 1) / 200.max(1)
+        };
+        let waveform: Vec<f32> = all_samples
+            .iter()
+            .step_by(step.max(1))
+            .copied()
+            .take(200)
+            .collect();
 
         *self.samples.lock().unwrap() = all_samples;
         *self.sample_rate.lock().unwrap() = sample_rate;
@@ -192,11 +210,11 @@ impl AudioPlayer {
 
         // 重新打开文件用于播放
         let file = File::open(path).map_err(|e| format!("无法重新打开文件: {}", e))?;
-        let source = Decoder::new(BufReader::new(file))
-            .map_err(|e| format!("无法解码音频: {}", e))?;
+        let source =
+            Decoder::new(BufReader::new(file)).map_err(|e| format!("无法解码音频: {}", e))?;
 
-        let sink = Sink::try_new(&self.stream_handle)
-            .map_err(|e| format!("无法创建音频输出: {}", e))?;
+        let sink =
+            Sink::try_new(&self.stream_handle).map_err(|e| format!("无法创建音频输出: {}", e))?;
         sink.set_volume(self.volume);
         sink.append(source);
 
@@ -264,10 +282,10 @@ impl AudioPlayer {
             }
 
             // 重新打开文件并 seek 到目标位置
-            let file = File::open(&self.current_path)
-                .map_err(|e| format!("无法打开音频文件: {}", e))?;
-            let mut source = Decoder::new(BufReader::new(file))
-                .map_err(|e| format!("无法解码音频: {}", e))?;
+            let file =
+                File::open(&self.current_path).map_err(|e| format!("无法打开音频文件: {}", e))?;
+            let mut source =
+                Decoder::new(BufReader::new(file)).map_err(|e| format!("无法解码音频: {}", e))?;
             source
                 .try_seek(std::time::Duration::from_millis(resume_position_ms))
                 .map_err(|e| format!("无法恢复播放位置: {}", e))?;
@@ -317,16 +335,16 @@ impl AudioPlayer {
             sink.stop();
         }
 
-        let file = File::open(&self.current_path)
-            .map_err(|e| format!("无法打开音频文件: {}", e))?;
-        let mut source = Decoder::new(BufReader::new(file))
-            .map_err(|e| format!("无法解码音频: {}", e))?;
+        let file =
+            File::open(&self.current_path).map_err(|e| format!("无法打开音频文件: {}", e))?;
+        let mut source =
+            Decoder::new(BufReader::new(file)).map_err(|e| format!("无法解码音频: {}", e))?;
         source
             .try_seek(std::time::Duration::from_millis(position_ms))
             .map_err(|e| format!("无法跳转到指定位置: {}", e))?;
 
-        let sink = Sink::try_new(&self.stream_handle)
-            .map_err(|e| format!("无法创建音频输出: {}", e))?;
+        let sink =
+            Sink::try_new(&self.stream_handle).map_err(|e| format!("无法创建音频输出: {}", e))?;
         sink.set_volume(self.volume);
         sink.append(source);
         self.sink = Some(sink);
@@ -377,8 +395,17 @@ impl AudioPlayer {
 
     fn build_state(&self) -> PlaybackState {
         let samples = self.samples.lock().unwrap();
-        let step = if samples.is_empty() { 1 } else { (samples.len() - 1) / 200.max(1) };
-        let waveform: Vec<f32> = samples.iter().step_by(step.max(1)).copied().take(200).collect();
+        let step = if samples.is_empty() {
+            1
+        } else {
+            (samples.len() - 1) / 200.max(1)
+        };
+        let waveform: Vec<f32> = samples
+            .iter()
+            .step_by(step.max(1))
+            .copied()
+            .take(200)
+            .collect();
         drop(samples);
 
         let (is_playing, position_ms, duration_ms) = match &self.state {
@@ -470,8 +497,7 @@ fn emit_playback_state(app: &tauri::AppHandle) {
 
 fn extract_waveform_preview(path: &str) -> Result<Vec<f32>, String> {
     let file = File::open(path).map_err(|e| format!("无法打开文件: {}", e))?;
-    let source = Decoder::new(BufReader::new(file))
-        .map_err(|e| format!("无法解码音频: {}", e))?;
+    let source = Decoder::new(BufReader::new(file)).map_err(|e| format!("无法解码音频: {}", e))?;
 
     let all_samples: Vec<f32> = source.convert_samples().collect();
     if all_samples.is_empty() {
@@ -479,7 +505,12 @@ fn extract_waveform_preview(path: &str) -> Result<Vec<f32>, String> {
     }
 
     let step = ((all_samples.len() - 1) / 200).max(1);
-    Ok(all_samples.iter().step_by(step).copied().take(200).collect())
+    Ok(all_samples
+        .iter()
+        .step_by(step)
+        .copied()
+        .take(200)
+        .collect())
 }
 
 // ---------------------------------------------------------------------------
@@ -513,15 +544,8 @@ pub fn open_audio_file(path: String) -> Result<AudioFileMetadata, String> {
     let track = format.default_track().ok_or("未找到音频轨道")?;
     let codec_params = &track.codec_params;
     let sample_rate = codec_params.sample_rate.unwrap_or(44100);
-    let channels = codec_params
-        .channels
-        .map(|c| c.count() as u16)
-        .unwrap_or(2);
-    let duration_ms = codec_params
-        .n_frames
-        .unwrap_or(0) as u64
-        * 1000
-        / sample_rate as u64;
+    let channels = codec_params.channels.map(|c| c.count() as u16).unwrap_or(2);
+    let duration_ms = codec_params.n_frames.unwrap_or(0) as u64 * 1000 / sample_rate as u64;
 
     let title = path_obj
         .file_stem()
@@ -583,10 +607,7 @@ pub fn load_waveform_preview(window: tauri::Window, path: String) -> Result<(), 
         Err(error) => {
             let _ = window.emit(
                 "waveform-preview-error",
-                WaveformPreviewErrorEvent {
-                    path,
-                    error,
-                },
+                WaveformPreviewErrorEvent { path, error },
             );
         }
     });
@@ -653,7 +674,6 @@ pub fn get_playback_state() -> PlaybackState {
     PLAYER.with(|p| p.borrow_mut().get_state())
 }
 
-
 // ---------------------------------------------------------------------------
 // 字幕加载/保存
 // ---------------------------------------------------------------------------
@@ -692,8 +712,7 @@ fn parse_srt_time(s: &str) -> Option<u64> {
 /// 加载 SRT 字幕文件（手动解析，不依赖 srt crate）
 #[tauri::command]
 pub fn load_subtitle_file(path: String) -> Result<Vec<SubtitleEntry>, String> {
-    let content = std::fs::read(&path)
-        .map_err(|e| format!("无法读取字幕文件: {}", e))?;
+    let content = std::fs::read(&path).map_err(|e| format!("无法读取字幕文件: {}", e))?;
     let text = String::from_utf8_lossy(&content);
 
     let mut entries: Vec<SubtitleEntry> = Vec::new();
@@ -739,7 +758,10 @@ fn ms_to_srt_time_str(ms: u64) -> String {
     let seconds = total_secs % 60;
     let minutes = (total_secs / 60) % 60;
     let hours = total_secs / 3600;
-    format!("{:02}:{:02}:{:02},{:03}", hours, minutes, seconds, milliseconds)
+    format!(
+        "{:02}:{:02}:{:02},{:03}",
+        hours, minutes, seconds, milliseconds
+    )
 }
 
 /// 保存字幕为 SRT 文件
@@ -757,8 +779,7 @@ pub fn save_subtitle_file(path: String, entries: Vec<SubtitleEntry>) -> Result<(
         output.push_str(&format!("{}\n{} --> {}\n{}\n\n", idx + 1, start, end, text));
     }
 
-    let mut file =
-        File::create(&path).map_err(|e| format!("无法创建字幕文件: {}", e))?;
+    let mut file = File::create(&path).map_err(|e| format!("无法创建字幕文件: {}", e))?;
     file.write_all(output.as_bytes())
         .map_err(|e| format!("写入字幕文件失败: {}", e))?;
 
@@ -808,8 +829,7 @@ pub fn save_recording(path: String, samples: Vec<f32>) -> Result<(), String> {
         buffer.extend_from_slice(&(int16 as i16).to_le_bytes());
     }
 
-    let mut file = File::create(&path)
-        .map_err(|e| format!("无法创建录音文件: {}", e))?;
+    let mut file = File::create(&path).map_err(|e| format!("无法创建录音文件: {}", e))?;
     file.write_all(&buffer)
         .map_err(|e| format!("写入录音文件失败: {}", e))?;
     Ok(())

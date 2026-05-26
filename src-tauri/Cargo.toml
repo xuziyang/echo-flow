@@ -36,4 +36,7 @@ sentencex = "0.1"
 ort = "2.0.0-rc.12"
 ndarray = "0.16"
 thiserror = "1.0"
+reqwest = { version = "0.12", features = ["stream"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+futures-util = "0.3"
 

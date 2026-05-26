@@ -190,9 +190,11 @@ export const useTranscriptStore = defineStore('transcript', () => {
       })
     } catch (err) {
       if (activeTranscribeJobId.value === jobId && currentAudioPath.value === audioPath) {
-        transcribeError.value = String(err)
+        const message = String(err)
+        transcribeError.value = message
         isTranscribing.value = false
         activeTranscribeJobId.value = null
+        app.showSubtitleToast(message, 'error')
       }
     }
   }
@@ -243,6 +245,7 @@ export const useTranscriptStore = defineStore('transcript', () => {
     transcribeError.value = event.error
     isTranscribing.value = false
     activeTranscribeJobId.value = null
+    app.showSubtitleToast(event.error, 'error')
   }
 
   return {

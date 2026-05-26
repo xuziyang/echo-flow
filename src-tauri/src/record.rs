@@ -123,14 +123,19 @@ pub fn start_recording() -> Result<(), String> {
         _ => return Err("Unsupported sample format".to_string()),
     };
 
-    stream.play().map_err(|e| format!("Failed to start recording: {}", e))?;
+    stream
+        .play()
+        .map_err(|e| format!("Failed to start recording: {}", e))?;
 
     RECORDING_STREAM.with(|cell| {
         *cell.borrow_mut() = Some(Box::new(stream));
     });
 
     IS_RECORDING.store(true, Ordering::SeqCst);
-    info!("Recording started ({} Hz, {} channels)", sample_rate, channels);
+    info!(
+        "Recording started ({} Hz, {} channels)",
+        sample_rate, channels
+    );
 
     Ok(())
 }
@@ -154,7 +159,10 @@ pub fn stop_recording() -> Result<RecordingData, String> {
 
     info!("Recording stopped, {} samples captured", samples.len());
 
-    Ok(RecordingData { samples, sample_rate })
+    Ok(RecordingData {
+        samples,
+        sample_rate,
+    })
 }
 
 #[derive(serde::Serialize)]

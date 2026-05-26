@@ -1,11 +1,25 @@
 <!-- src/views/SettingsView.vue -->
 <script setup lang="ts">
+import { onMounted } from 'vue'
 import { useAppStore } from '../stores/useAppStore'
 import { useSettingsStore } from '../stores/useSettingsStore'
+import { useModelDownloadStore } from '../stores/useModelDownloadStore'
 import Icon from '../components/Icon.vue'
 
 const app = useAppStore()
 const settings = useSettingsStore()
+const modelDownload = useModelDownloadStore()
+
+const whisperModels = [
+  { type: 'whisper-tiny' as const, name: 'Tiny (75MB)' },
+  { type: 'whisper-base' as const, name: 'Base (142MB)' },
+  { type: 'whisper-small' as const, name: 'Small (466MB)' },
+  { type: 'whisper-medium' as const, name: 'Medium (1.5GB)' },
+]
+
+onMounted(() => {
+  modelDownload.checkModels()
+})
 </script>
 
 <template>
@@ -72,6 +86,102 @@ const settings = useSettingsStore()
                  class="w-full p-3 rounded-lg border focus:ring-2 focus:ring-brand-500 focus:border-transparent outline-none transition-all"
                  :class="app.theme === 'dark' ? 'bg-dark-bg border-gray-700 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-black placeholder-gray-400'" />
           <p class="mt-2 text-xs text-gray-500">Custom directory for AI models (Whisper, VAD, Aligner). Use ~ for home directory. Leave empty to use default.</p>
+        </div>
+
+        <!-- Model Downloads -->
+        <div>
+          <label class="block text-xs font-bold uppercase tracking-wider mb-2"
+                 :class="app.theme === 'dark' ? 'text-brand-400' : 'text-gray-500'">Whisper Models</label>
+          <div class="space-y-2">
+            <div v-for="model in whisperModels"
+                 :key="model.type"
+                 class="flex items-center justify-between p-2 rounded-lg"
+                 :class="app.theme === 'dark' ? 'bg-dark-bg' : 'bg-gray-50'">
+              <span class="text-sm" :class="app.theme === 'dark' ? 'text-white' : 'text-black'">{{ model.name }}</span>
+              <div class="flex items-center gap-2">
+                <span v-if="modelDownload.isModelInstalled(model.type)"
+                      class="text-xs text-green-500">Installed</span>
+                <button v-if="!modelDownload.isModelInstalled(model.type)"
+                        @click="modelDownload.downloadModel(model.type)"
+                        :disabled="modelDownload.isDownloading"
+                        class="px-3 py-1 text-xs rounded-md transition-colors"
+                        :class="app.theme === 'dark' ? 'bg-brand-500 text-white hover:bg-brand-600' : 'bg-brand-500 text-white hover:bg-brand-600'">
+                  Download
+                </button>
+                <button v-else
+                        @click="modelDownload.deleteModel(model.type)"
+                        class="px-3 py-1 text-xs rounded-md transition-colors text-red-500 hover:bg-red-100">
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- VAD Model -->
+        <div>
+          <label class="block text-xs font-bold uppercase tracking-wider mb-2"
+                 :class="app.theme === 'dark' ? 'text-brand-400' : 'text-gray-500'">VAD Model</label>
+          <div class="flex items-center justify-between p-2 rounded-lg"
+               :class="app.theme === 'dark' ? 'bg-dark-bg' : 'bg-gray-50'">
+            <span class="text-sm" :class="app.theme === 'dark' ? 'text-white' : 'text-black'">Silero VAD (1.8MB)</span>
+            <div class="flex items-center gap-2">
+              <span v-if="modelDownload.isModelInstalled('vad')"
+                    class="text-xs text-green-500">Installed</span>
+              <button v-if="!modelDownload.isModelInstalled('vad')"
+                      @click="modelDownload.downloadModel('vad')"
+                      :disabled="modelDownload.isDownloading"
+                      class="px-3 py-1 text-xs rounded-md transition-colors"
+                      :class="app.theme === 'dark' ? 'bg-brand-500 text-white hover:bg-brand-600' : 'bg-brand-500 text-white hover:bg-brand-600'">
+                Download
+              </button>
+              <button v-else
+                      @click="modelDownload.deleteModel('vad')"
+                      class="px-3 py-1 text-xs rounded-md transition-colors text-red-500 hover:bg-red-100">
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Alignment Model -->
+        <div>
+          <label class="block text-xs font-bold uppercase tracking-wider mb-2"
+                 :class="app.theme === 'dark' ? 'text-brand-400' : 'text-gray-500'">Alignment Model</label>
+          <div class="flex items-center justify-between p-2 rounded-lg"
+               :class="app.theme === 'dark' ? 'bg-dark-bg' : 'bg-gray-50'">
+            <span class="text-sm" :class="app.theme === 'dark' ? 'text-white' : 'text-black'">Wav2Vec2 (378MB)</span>
+            <div class="flex items-center gap-2">
+              <span v-if="modelDownload.isModelInstalled('alignment')"
+                    class="text-xs text-green-500">Installed</span>
+              <button v-if="!modelDownload.isModelInstalled('alignment')"
+                      @click="modelDownload.downloadModel('alignment')"
+                      :disabled="modelDownload.isDownloading"
+                      class="px-3 py-1 text-xs rounded-md transition-colors"
+                      :class="app.theme === 'dark' ? 'bg-brand-500 text-white hover:bg-brand-600' : 'bg-brand-500 text-white hover:bg-brand-600'">
+                Download
+              </button>
+              <button v-else
+                      @click="modelDownload.deleteModel('alignment')"
+                      class="px-3 py-1 text-xs rounded-md transition-colors text-red-500 hover:bg-red-100">
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Download Progress -->
+        <div v-if="modelDownload.isDownloading" class="p-3 rounded-lg border"
+             :class="app.theme === 'dark' ? 'bg-dark-bg border-gray-700' : 'bg-gray-50 border-gray-200'">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-sm" :class="app.theme === 'dark' ? 'text-white' : 'text-black'">Downloading...</span>
+            <span class="text-xs text-gray-500">{{ modelDownload.downloadProgressPercent.toFixed(0) }}%</span>
+          </div>
+          <div class="w-full h-2 rounded-full overflow-hidden"
+               :class="app.theme === 'dark' ? 'bg-gray-700' : 'bg-gray-200'">
+            <div class="h-full bg-brand-500 transition-all duration-300"
+                 :style="{ width: `${modelDownload.downloadProgressPercent}%` }"></div>
+          </div>
         </div>
       </div>
 

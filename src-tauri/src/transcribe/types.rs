@@ -12,7 +12,10 @@ pub struct AudioSamples {
     pub source_path: String,
 }
 
-pub(crate) fn validate_audio(audio: &AudioSamples, sample_rate: u32) -> Result<(), super::error::SubtitleError> {
+pub(crate) fn validate_audio(
+    audio: &AudioSamples,
+    sample_rate: u32,
+) -> Result<(), super::error::SubtitleError> {
     if audio.sample_rate != sample_rate || audio.channels != 1 {
         return Err(super::error::SubtitleError::InvalidAudioFormat {
             sample_rate: audio.sample_rate,

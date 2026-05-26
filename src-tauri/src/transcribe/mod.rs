@@ -31,13 +31,17 @@ pub use error::SubtitleError;
 pub use types::{FrontendTranscriptSegment, ProcessingResult};
 
 // Re-export frontend-compatible types (旧接口保持兼容)
-pub use types::{
-    TranscribeDoneEvent, TranscribeErrorEvent, TranscribeProgressEvent,
-};
+pub use types::{TranscribeDoneEvent, TranscribeErrorEvent, TranscribeProgressEvent};
 
 static LAST_TRANSCRIBE_JOB_ID: AtomicU64 = AtomicU64::new(0);
 
 const DEFAULT_MODEL_CACHE_DIR: &str = ".cache/echo-flow/models";
+const DEFAULT_WHISPER_MODELS: [&str; 4] = [
+    "ggml-base.en.bin",
+    "ggml-small.en.bin",
+    "ggml-medium.en.bin",
+    "ggml-tiny.en.bin",
+];
 
 /// SubtitlePipeline - 完整的字幕生成 pipeline
 #[derive(Debug, Default, Clone)]
@@ -69,7 +73,11 @@ impl SubtitlePipeline {
         }
     }
 
-    pub fn process_with_progress<F>(&self, input: &Path, mut progress: F) -> Result<ProcessingResult, SubtitleError>
+    pub fn process_with_progress<F>(
+        &self,
+        input: &Path,
+        mut progress: F,
+    ) -> Result<ProcessingResult, SubtitleError>
     where
         F: FnMut(&str, f32),
     {
@@ -101,6 +109,21 @@ fn resolve_model_path(path: &PathBuf, model_name: &str) -> Result<PathBuf, Strin
     }
 }
 
+fn resolve_first_model_path(paths: &[PathBuf], model_name: &str) -> Result<PathBuf, String> {
+    paths
+        .iter()
+        .find(|path| path.exists())
+        .cloned()
+        .ok_or_else(|| {
+            let expected = paths
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("{} not found. Expected one of: {}", model_name, expected)
+        })
+}
+
 /// 转写音频文件，返回带时间戳的字幕
 #[tauri::command]
 pub fn transcribe_audio(
@@ -112,23 +135,28 @@ pub fn transcribe_audio(
 ) -> Result<u64, String> {
     let home = std::env::var("HOME").unwrap_or_default();
     let cache_dir = match model_dir {
-        Some(ref dir) if !dir.is_empty() => {
-            PathBuf::from(if dir.starts_with('~') {
-                dir.replacen('~', &home, 1)
-            } else {
-                dir.clone()
-            })
-        }
+        Some(ref dir) if !dir.is_empty() => PathBuf::from(if dir.starts_with('~') {
+            dir.replacen('~', &home, 1)
+        } else {
+            dir.clone()
+        }),
         _ => PathBuf::from(format!("{}/{}", home, DEFAULT_MODEL_CACHE_DIR)),
     };
 
     // 解析模型路径
     let whisper_model = match model_path {
         Some(ref p) => resolve_model_path(&PathBuf::from(p), "Whisper model")?,
-        None => resolve_model_path(&cache_dir.join("ggml-base.en.bin"), "Whisper model")?,
+        None => {
+            let paths = DEFAULT_WHISPER_MODELS
+                .iter()
+                .map(|filename| cache_dir.join(filename))
+                .collect::<Vec<_>>();
+            resolve_first_model_path(&paths, "Whisper model")?
+        }
     };
     let vad_model = resolve_model_path(&cache_dir.join("silero_vad.onnx"), "VAD model")?;
-    let align_model = resolve_model_path(&cache_dir.join("wav2vec2-base-en.onnx"), "Aligner model")?;
+    let align_model =
+        resolve_model_path(&cache_dir.join("wav2vec2-base-en.onnx"), "Aligner model")?;
     let align_vocab = resolve_model_path(&cache_dir.join("wav2vec2-vocab.json"), "Aligner vocab")?;
 
     log::info!(
@@ -147,41 +175,45 @@ pub fn transcribe_audio(
     std::thread::spawn(move || {
         let progress_audio_path = audio_path_clone.clone();
 
-        let pipeline = SubtitlePipeline::with_config(
-            whisper_model,
-            vad_model,
-            align_model,
-            align_vocab,
-        );
+        let pipeline =
+            SubtitlePipeline::with_config(whisper_model, vad_model, align_model, align_vocab);
 
-        let result = pipeline.process_with_progress(Path::new(&audio_path_clone), |stage, percent| {
-            let _ = window_clone.emit(
-                "transcribe-progress",
-                TranscribeProgressEvent {
-                    job_id: resolved_job_id,
-                    audio_path: progress_audio_path.clone(),
-                    percent,
-                    sentence: stage.to_string(),
-                    done: false,
-                },
-            );
-        });
+        let result =
+            pipeline.process_with_progress(Path::new(&audio_path_clone), |stage, percent| {
+                let _ = window_clone.emit(
+                    "transcribe-progress",
+                    TranscribeProgressEvent {
+                        job_id: resolved_job_id,
+                        audio_path: progress_audio_path.clone(),
+                        percent,
+                        sentence: stage.to_string(),
+                        done: false,
+                    },
+                );
+            });
 
         match result {
             Ok(result) => {
                 // 转换为前端兼容的格式
-                let segments: Vec<FrontendTranscriptSegment> = result.subtitles.iter().map(|s| FrontendTranscriptSegment {
-                    id: s.index as i64,
-                    en: s.text.clone(),
-                    start_ms: s.start_ms as i64,
-                    end_ms: s.end_ms as i64,
-                    words: Vec::new(),
-                }).collect();
+                let segments: Vec<FrontendTranscriptSegment> = result
+                    .subtitles
+                    .iter()
+                    .map(|s| FrontendTranscriptSegment {
+                        id: s.index as i64,
+                        en: s.text.clone(),
+                        start_ms: s.start_ms as i64,
+                        end_ms: s.end_ms as i64,
+                        words: Vec::new(),
+                    })
+                    .collect();
 
                 // 保存 SRT 文件
                 let source = Path::new(&audio_path_clone);
                 let parent = source.parent().unwrap_or_else(|| Path::new("."));
-                let stem = source.file_stem().and_then(|s| s.to_str()).unwrap_or("transcript");
+                let stem = source
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("transcript");
                 let srt_path = parent.join(format!("{}.srt", stem));
 
                 match std::fs::File::create(&srt_path) {

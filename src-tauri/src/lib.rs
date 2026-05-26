@@ -1,5 +1,6 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 mod audio;
+mod download;
 mod record;
 mod transcribe;
 
@@ -39,11 +40,16 @@ pub fn run() {
             record::start_recording,
             record::stop_recording,
             record::get_recording_waveform,
+            download::list_downloaded_models,
+            download::download_model,
+            download::delete_model,
         ])
         .setup(|app| {
             info!("echo-flow starting...");
-            let mut builder =
-                tauri::WebviewWindowBuilder::from_config(app.handle(), &app.config().app.windows[0])?;
+            let mut builder = tauri::WebviewWindowBuilder::from_config(
+                app.handle(),
+                &app.config().app.windows[0],
+            )?;
             #[cfg(target_os = "macos")]
             {
                 builder = builder.title_bar_style(tauri::TitleBarStyle::Overlay);

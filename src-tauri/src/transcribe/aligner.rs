@@ -14,8 +14,6 @@ use super::types::{
     TranscriptSegment, DEFAULT_LANGUAGE,
 };
 
-const DEFAULT_ALIGN_MODEL: &str = "models/wav2vec2-base-en.onnx";
-const DEFAULT_ALIGN_VOCAB: &str = "models/wav2vec2-vocab.json";
 const MIN_WAV2VEC_SAMPLES: usize = 400;
 
 #[derive(Clone)]
@@ -109,25 +107,12 @@ impl Default for Aligner {
 
 impl Default for AlignerConfig {
     fn default() -> Self {
-        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let home = std::env::var("HOME").unwrap_or_default();
-        let cache_models = PathBuf::from(format!("{}/.cache/echo-flow/models", home));
-
-        let model_path = if cache_models.join("wav2vec2-base-en.onnx").exists() {
-            cache_models.join("wav2vec2-base-en.onnx")
-        } else {
-            manifest_dir.join(DEFAULT_ALIGN_MODEL)
-        };
-
-        let vocab_path = if cache_models.join("wav2vec2-vocab.json").exists() {
-            cache_models.join("wav2vec2-vocab.json")
-        } else {
-            manifest_dir.join(DEFAULT_ALIGN_VOCAB)
-        };
+        let cache_dir = PathBuf::from(format!("{}/.cache/echo-flow/models", home));
 
         Self {
-            model_path,
-            vocab_path,
+            model_path: cache_dir.join("wav2vec2-base-en.onnx"),
+            vocab_path: cache_dir.join("wav2vec2-vocab.json"),
         }
     }
 }

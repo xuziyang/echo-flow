@@ -93,26 +93,12 @@ impl SubtitlePipeline {
     }
 }
 
-fn resolve_model_path(
-    user_provided: Option<&str>,
-    default_paths: &[String],
-) -> Result<PathBuf, String> {
-    if let Some(path) = user_provided {
-        let p = PathBuf::from(path);
-        if p.exists() {
-            return Ok(p);
-        }
-        return Err(format!("Model not found at: {}", path));
+fn resolve_model_path(path: &PathBuf, model_name: &str) -> Result<PathBuf, String> {
+    if path.exists() {
+        Ok(path.clone())
+    } else {
+        Err(format!("{} not found at {}", model_name, path.display()))
     }
-
-    for path in default_paths {
-        let p = PathBuf::from(path);
-        if p.exists() {
-            return Ok(p);
-        }
-    }
-
-    Err("No valid model path found".to_string())
 }
 
 /// 转写音频文件，返回带时间戳的字幕
@@ -136,36 +122,14 @@ pub fn transcribe_audio(
         _ => PathBuf::from(format!("{}/{}", home, DEFAULT_MODEL_CACHE_DIR)),
     };
 
-    // 解析 Whisper 模型路径
-    let whisper_model = resolve_model_path(model_path.as_deref(), &[
-        cache_dir.join("ggml-base.en.bin").to_string_lossy().into_owned(),
-        cache_dir.join("ggml-small.en.bin").to_string_lossy().into_owned(),
-        "./models/ggml-base.en.bin".to_string(),
-        "./models/ggml-small.en.bin".to_string(),
-        format!("{}/.cache/whisper/ggml-base.en.bin", home),
-        format!("{}/.cache/whisper/ggml-small.en.bin", home),
-    ])?;
-
-    // VAD 模型路径
-    let vad_model = resolve_model_path(None, &[
-        cache_dir.join("silero_vad.onnx").to_string_lossy().into_owned(),
-        "./models/silero_vad.onnx".to_string(),
-        format!("{}/.cargo/registry/src/*/whisperx-rs-*/models/silero_vad.onnx", home),
-    ])?;
-
-    // Wav2Vec2 模型路径
-    let align_model = resolve_model_path(None, &[
-        cache_dir.join("wav2vec2-base-en.onnx").to_string_lossy().into_owned(),
-        "./models/wav2vec2-base-en.onnx".to_string(),
-        format!("{}/.cargo/registry/src/*/whisperx-rs-*/models/wav2vec2-base-en.onnx", home),
-    ])?;
-
-    // Wav2Vec2 vocab 路径
-    let align_vocab = resolve_model_path(None, &[
-        cache_dir.join("wav2vec2-vocab.json").to_string_lossy().into_owned(),
-        "./models/wav2vec2-vocab.json".to_string(),
-        format!("{}/.cargo/registry/src/*/whisperx-rs-*/models/wav2vec2-vocab.json", home),
-    ])?;
+    // 解析模型路径
+    let whisper_model = match model_path {
+        Some(ref p) => resolve_model_path(&PathBuf::from(p), "Whisper model")?,
+        None => resolve_model_path(&cache_dir.join("ggml-base.en.bin"), "Whisper model")?,
+    };
+    let vad_model = resolve_model_path(&cache_dir.join("silero_vad.onnx"), "VAD model")?;
+    let align_model = resolve_model_path(&cache_dir.join("wav2vec2-base-en.onnx"), "Aligner model")?;
+    let align_vocab = resolve_model_path(&cache_dir.join("wav2vec2-vocab.json"), "Aligner vocab")?;
 
     log::info!(
         "Starting transcription: audio={}, whisper={}, vad={}, align={}",

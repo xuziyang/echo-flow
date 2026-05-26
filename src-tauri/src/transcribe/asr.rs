@@ -9,11 +9,8 @@ use super::error::SubtitleError;
 use super::types::{
     samples_to_ms, validate_audio, AudioSamples, Transcript, TranscriptSegment, DEFAULT_LANGUAGE,
 };
-use super::vad::{
-    detect_voice_segments, load_vad_session, merge_voice_segments, DEFAULT_VAD_MODEL,
-};
+use super::vad::{detect_voice_segments, load_vad_session, merge_voice_segments};
 
-const DEFAULT_WHISPER_MODEL: &str = "models/ggml-base.en.bin";
 const DEFAULT_CHUNK_SIZE_SECS: f32 = 30.0;
 const DEFAULT_VAD_THRESHOLD: f32 = 0.5;
 
@@ -55,25 +52,12 @@ impl Default for Asr {
 
 impl Default for AsrConfig {
     fn default() -> Self {
-        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let home = std::env::var("HOME").unwrap_or_default();
-        let cache_models = PathBuf::from(format!("{}/.cache/echo-flow/models", home));
-
-        let whisper_model_path = if cache_models.join("ggml-base.en.bin").exists() {
-            cache_models.join("ggml-base.en.bin")
-        } else {
-            manifest_dir.join(DEFAULT_WHISPER_MODEL)
-        };
-
-        let vad_model_path = if cache_models.join("silero_vad.onnx").exists() {
-            cache_models.join("silero_vad.onnx")
-        } else {
-            manifest_dir.join(DEFAULT_VAD_MODEL)
-        };
+        let cache_dir = PathBuf::from(format!("{}/.cache/echo-flow/models", home));
 
         Self {
-            vad_model_path,
-            whisper_model_path,
+            vad_model_path: cache_dir.join("silero_vad.onnx"),
+            whisper_model_path: cache_dir.join("ggml-base.en.bin"),
             chunk_size_secs: DEFAULT_CHUNK_SIZE_SECS,
             vad_threshold: DEFAULT_VAD_THRESHOLD,
         }

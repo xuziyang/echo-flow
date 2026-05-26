@@ -6,7 +6,6 @@ use ort::value::Tensor;
 use super::error::SubtitleError;
 use super::types::ms_to_sample;
 
-pub const DEFAULT_VAD_MODEL: &str = "models/silero_vad.onnx";
 const VAD_WINDOW_SAMPLES: usize = 512;
 const VAD_CONTEXT_SAMPLES: usize = 64;
 const VAD_INPUT_SAMPLES: usize = VAD_CONTEXT_SAMPLES + VAD_WINDOW_SAMPLES;

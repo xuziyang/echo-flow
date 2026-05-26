@@ -14,16 +14,23 @@ const recording = useRecordingStore()
 const transcript = useTranscriptStore()
 
 const currentSentence = computed(() => transcript.sentences[player.currentIndex])
+const isBusy = computed(() => (
+  player.isPlaying
+  || player.seeking
+  || recording.isRecording
+  || Boolean(recording.activePlaybackMode)
+))
 const canPlayOriginal = computed(() => (
-  !player.seeking
+  !isBusy.value
   && player.canPlaySentenceSegment(currentSentence.value?.start_ms, currentSentence.value?.end_ms)
 ))
 
 const hasRecording = computed(() => Boolean(recording.userAudioUrl))
-const canPlayRecording = computed(() => hasRecording.value && !recording.isRecording)
+const canToggleRecording = computed(() => recording.isRecording || !isBusy.value)
+const canPlayRecording = computed(() => hasRecording.value && !isBusy.value)
 const canCompare = computed(() => (
   hasRecording.value
-  && !recording.isRecording
+  && !isBusy.value
   && player.canPlaySentenceSegment(currentSentence.value?.start_ms, currentSentence.value?.end_ms)
 ))
 
@@ -63,13 +70,18 @@ const actionButtonClass = (enabled: boolean) => {
 
       <!-- Recording Button -->
       <button @click="recording.toggleRecording()"
+              :disabled="!canToggleRecording"
               class="w-11 h-11 rounded-full flex items-center justify-center text-lg transition-all duration-200 shadow-lg mx-3"
-              :class="(recording.isRecording ? 'recording-ring ' : '') +
-                 (recording.isRecording
-                   ? 'bg-red-500 text-white shadow-red-500/25 hover:bg-red-600 hover:scale-110'
-                   : (app.theme === 'dark'
-                      ? 'bg-sky-500 text-white shadow-sky-500/25 hover:bg-sky-400 hover:scale-110'
-                      : 'bg-sky-500 text-white shadow-sky-500/20 hover:bg-sky-600 hover:scale-110'))"
+              :class="!canToggleRecording
+                ? (app.theme === 'dark'
+                  ? 'bg-zinc-800 text-zinc-500 shadow-none cursor-not-allowed opacity-45'
+                  : 'bg-gray-100 text-gray-400 shadow-none cursor-not-allowed opacity-55')
+                : ((recording.isRecording ? 'recording-ring ' : '') +
+                  (recording.isRecording
+                    ? 'bg-red-500 text-white shadow-red-500/25 hover:bg-red-600 hover:scale-110'
+                    : (app.theme === 'dark'
+                       ? 'bg-sky-500 text-white shadow-sky-500/25 hover:bg-sky-400 hover:scale-110'
+                       : 'bg-sky-500 text-white shadow-sky-500/20 hover:bg-sky-600 hover:scale-110')))"
               title="Space — Start/stop recording">
         <Icon :name="recording.isRecording ? 'stop' : 'microphone'" />
       </button>

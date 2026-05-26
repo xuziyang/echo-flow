@@ -1,22 +1,31 @@
 <script setup lang="ts">
-import { nextTick, ref, watch, type ComponentPublicInstance } from 'vue'
+import { computed, nextTick, ref, watch, type ComponentPublicInstance } from 'vue'
 import { useAppStore } from '../../stores/useAppStore'
 import { usePlayerStore } from '../../stores/usePlayerStore'
+import { useRecordingStore } from '../../stores/useRecordingStore'
 import { useTranscriptStore, type Sentence } from '../../stores/useTranscriptStore'
 import { getCurrentSubtitleIndex } from '../../composables/useSubtitleSync'
 import ScriptFlowItem from './ScriptFlowItem.vue'
 
 const app = useAppStore()
 const player = usePlayerStore()
+const recording = useRecordingStore()
 const transcript = useTranscriptStore()
 
 const itemRefs = ref<Record<number, HTMLElement | null>>({})
+const isBusy = computed(() => (
+  player.isPlaying
+  || player.seeking
+  || recording.isRecording
+  || Boolean(recording.activePlaybackMode)
+))
 
 function setItemRef(el: Element | ComponentPublicInstance | null, index: number) {
   itemRefs.value[index] = el && '$el' in el ? (el as ComponentPublicInstance).$el as HTMLElement : el as HTMLElement | null
 }
 
 function selectSentence(index: number, sentence: Sentence) {
+  if (isBusy.value) return
   player.setCurrentIndex(index)
   if (app.mode === 'listening') {
     void player.seekTo(sentence.start_ms ?? 0)
@@ -56,6 +65,7 @@ watch(() => player.currentIndex, async (index) => {
         :ref="(el) => setItemRef(el as any, index)"
         :item="item"
         :index="index"
+        :disabled="isBusy"
         @click="selectSentence(index, item)"
       />
     </div>

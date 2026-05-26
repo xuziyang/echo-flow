@@ -4,7 +4,7 @@ import { useAppStore } from '../../stores/useAppStore'
 import { usePlayerStore } from '../../stores/usePlayerStore'
 import { type Sentence } from '../../stores/useTranscriptStore'
 
-const props = defineProps<{ item: Sentence; index: number }>()
+const props = defineProps<{ item: Sentence; index: number; disabled?: boolean }>()
 const emit = defineEmits<{ click: [index: number] }>()
 
 const app = useAppStore()
@@ -18,16 +18,17 @@ const itemClass = computed(() => {
   }
 
   return app.theme === 'dark'
-    ? 'border-transparent opacity-50 hover:opacity-85 hover:bg-white/5 hover:shadow-sm hover:shadow-white/5'
-    : 'border-transparent opacity-50 hover:opacity-85 hover:bg-gray-100 hover:shadow-sm hover:shadow-black/5'
+    ? `border-transparent opacity-50 ${props.disabled ? 'cursor-not-allowed' : 'hover:opacity-85 hover:bg-white/5 hover:shadow-sm hover:shadow-white/5'}`
+    : `border-transparent opacity-50 ${props.disabled ? 'cursor-not-allowed' : 'hover:opacity-85 hover:bg-gray-100 hover:shadow-sm hover:shadow-black/5'}`
 })
 </script>
 
 <template>
-  <div @click="emit('click', index)"
+  <div @click="!disabled && emit('click', index)"
 
-       class="p-3 rounded-lg border cursor-pointer transition-all group flex gap-3 items-start"
-       :class="itemClass">
+       class="p-3 rounded-lg border transition-all group flex gap-3 items-start"
+       :class="[itemClass, disabled ? 'cursor-not-allowed' : 'cursor-pointer']"
+       >
 
     <!-- Status Icon -->
     <div class="mt-0.5">

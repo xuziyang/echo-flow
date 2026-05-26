@@ -66,6 +66,8 @@ export const useRecordingStore = defineStore('recording', () => {
   }
 
   async function startRecording() {
+    if (activePlaybackMode.value || player.isPlaying || player.seeking) return
+
     try {
       stopPlayback()
       await player.clearSentenceSegment({ pausePlayback: true })
@@ -219,6 +221,7 @@ export const useRecordingStore = defineStore('recording', () => {
 
   async function playUserRecording(mode: 'recording' | 'comparison' = 'recording') {
     if (!userAudioUrl.value && recordingSamples.value.length === 0) return
+    if (isRecording.value || player.isPlaying || player.seeking) return
 
     stopPlayback()
     await player.clearSentenceSegment({ pausePlayback: true })
@@ -261,6 +264,7 @@ export const useRecordingStore = defineStore('recording', () => {
 
   async function playComparison() {
     if (recordingSamples.value.length === 0 && !userAudioUrl.value) return
+    if (isRecording.value || activePlaybackMode.value || player.isPlaying || player.seeking) return
 
     const sentence = transcript.sentences[player.currentIndex]
     const startedOriginal = await player.playSentenceSegment(sentence?.start_ms, sentence?.end_ms)

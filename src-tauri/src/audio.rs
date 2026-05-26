@@ -13,6 +13,8 @@ use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 use tauri::Emitter;
 
+const WAVEFORM_PREVIEW_SAMPLES: usize = 2400;
+
 /// 音频文件元数据
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AudioFileMetadata {
@@ -117,13 +119,13 @@ impl AudioPlayer {
         let step = if all_samples.is_empty() {
             1
         } else {
-            (all_samples.len() - 1) / 200.max(1)
+            (all_samples.len() - 1) / WAVEFORM_PREVIEW_SAMPLES.max(1)
         };
         let waveform: Vec<f32> = all_samples
             .iter()
             .step_by(step.max(1))
             .copied()
-            .take(200)
+            .take(WAVEFORM_PREVIEW_SAMPLES)
             .collect();
 
         *self.samples.lock().unwrap() = all_samples;
@@ -190,13 +192,13 @@ impl AudioPlayer {
         let step = if all_samples.is_empty() {
             1
         } else {
-            (all_samples.len() - 1) / 200.max(1)
+            (all_samples.len() - 1) / WAVEFORM_PREVIEW_SAMPLES.max(1)
         };
         let waveform: Vec<f32> = all_samples
             .iter()
             .step_by(step.max(1))
             .copied()
-            .take(200)
+            .take(WAVEFORM_PREVIEW_SAMPLES)
             .collect();
 
         *self.samples.lock().unwrap() = all_samples;
@@ -398,13 +400,13 @@ impl AudioPlayer {
         let step = if samples.is_empty() {
             1
         } else {
-            (samples.len() - 1) / 200.max(1)
+            (samples.len() - 1) / WAVEFORM_PREVIEW_SAMPLES.max(1)
         };
         let waveform: Vec<f32> = samples
             .iter()
             .step_by(step.max(1))
             .copied()
-            .take(200)
+            .take(WAVEFORM_PREVIEW_SAMPLES)
             .collect();
         drop(samples);
 
@@ -504,12 +506,12 @@ fn extract_waveform_preview(path: &str) -> Result<Vec<f32>, String> {
         return Ok(Vec::new());
     }
 
-    let step = ((all_samples.len() - 1) / 200).max(1);
+    let step = ((all_samples.len() - 1) / WAVEFORM_PREVIEW_SAMPLES).max(1);
     Ok(all_samples
         .iter()
         .step_by(step)
         .copied()
-        .take(200)
+        .take(WAVEFORM_PREVIEW_SAMPLES)
         .collect())
 }
 

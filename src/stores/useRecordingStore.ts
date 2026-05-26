@@ -21,9 +21,11 @@ export const useRecordingStore = defineStore('recording', () => {
   const recordingSamples = ref<number[]>([])
   const activePlaybackMode = ref<'recording' | 'comparison' | null>(null)
   const recordingSampleRate = ref(44100)
+  const recordingDurationMs = ref(0)
 
   let htmlAudio: HTMLAudioElement | null = null
   let playbackToken = 0
+  let waveformTimer: ReturnType<typeof setInterval> | null = null
   let audioContext: AudioContext | null = null
   let audioBufferSource: AudioBufferSourceNode | null = null
 
@@ -68,8 +70,11 @@ export const useRecordingStore = defineStore('recording', () => {
       stopPlayback()
       await player.clearSentenceSegment({ pausePlayback: true })
       await invoke('start_recording')
+      userWaveformSamples.value = []
+      startWaveformPolling()
       isRecording.value = true
     } catch (err) {
+      stopWaveformPolling()
       app.showSubtitleToast(typeof err === 'string' ? err : String(err), 'error')
     }
   }
@@ -78,9 +83,13 @@ export const useRecordingStore = defineStore('recording', () => {
     if (!isRecording.value) return
 
     try {
+      stopWaveformPolling()
       const result = (await invoke('stop_recording')) as RecordingResult
       recordingSamples.value = result.samples
       recordingSampleRate.value = result.sample_rate
+      recordingDurationMs.value = result.sample_rate > 0
+        ? Math.round((result.samples.length / result.sample_rate) * 1000)
+        : 0
 
       // Convert samples to audio URL for playback
       if (recordingSamples.value.length > 0) {
@@ -90,13 +99,38 @@ export const useRecordingStore = defineStore('recording', () => {
         userAudioUrl.value = URL.createObjectURL(blob)
 
         // Get waveform from samples
-        userWaveformSamples.value = extractWaveformFromSamples(recordingSamples.value, 200)
+        userWaveformSamples.value = extractWaveformFromSamples(recordingSamples.value, 640)
       }
     } catch (err) {
       app.showSubtitleToast(typeof err === 'string' ? err : String(err), 'error')
     } finally {
+      stopWaveformPolling()
       isRecording.value = false
     }
+  }
+
+  function stopWaveformPolling() {
+    if (waveformTimer === null) return
+    clearInterval(waveformTimer)
+    waveformTimer = null
+  }
+
+  function startWaveformPolling() {
+    stopWaveformPolling()
+
+    const updateWaveform = async () => {
+      try {
+        const waveform = await invoke<number[]>('get_recording_waveform', { numSamples: 640 })
+        userWaveformSamples.value = waveform
+      } catch {
+        stopWaveformPolling()
+      }
+    }
+
+    void updateWaveform()
+    waveformTimer = setInterval(() => {
+      void updateWaveform()
+    }, 120)
   }
 
   /**
@@ -251,6 +285,7 @@ export const useRecordingStore = defineStore('recording', () => {
     isRecording,
     userAudioUrl,
     userWaveformSamples,
+    recordingDurationMs,
     activePlaybackMode,
     toggleRecording,
     playUserRecording,

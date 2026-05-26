@@ -1,6 +1,6 @@
 <!-- src/views/SettingsView.vue -->
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, onUnmounted, watch } from 'vue'
 import { useAppStore } from '../stores/useAppStore'
 import { useSettingsStore } from '../stores/useSettingsStore'
 import { useModelDownloadStore } from '../stores/useModelDownloadStore'
@@ -19,6 +19,20 @@ const whisperModels = [
 
 onMounted(() => {
   modelDownload.checkModels()
+})
+
+let modelDirectoryCheckTimer: ReturnType<typeof setTimeout> | null = null
+
+watch(() => settings.modelDirectory, () => {
+  if (modelDirectoryCheckTimer) clearTimeout(modelDirectoryCheckTimer)
+  modelDirectoryCheckTimer = setTimeout(() => {
+    modelDownload.checkModels()
+    modelDirectoryCheckTimer = null
+  }, 300)
+})
+
+onUnmounted(() => {
+  if (modelDirectoryCheckTimer) clearTimeout(modelDirectoryCheckTimer)
 })
 </script>
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted } from 'vue'
+import { onMounted, onUnmounted, watch } from 'vue'
 import { useAppStore } from '../../stores/useAppStore'
 import { usePlayerStore } from '../../stores/usePlayerStore'
 import { useRecordingStore } from '../../stores/useRecordingStore'
@@ -11,6 +11,11 @@ const app = useAppStore()
 const player = usePlayerStore()
 const recording = useRecordingStore()
 const transcript = useTranscriptStore()
+
+function playCurrentSentence() {
+  const s = transcript.sentences[player.currentIndex]
+  void player.playSentenceSegment(s?.start_ms, s?.end_ms)
+}
 
 function onKeydown(e: KeyboardEvent) {
   const tag = (e.target as HTMLElement).tagName
@@ -51,6 +56,10 @@ function onKeydown(e: KeyboardEvent) {
 onMounted(() => {
   void player.clearSentenceSegment({ pausePlayback: true })
   window.addEventListener('keydown', onKeydown)
+})
+
+watch(() => player.currentIndex, () => {
+  playCurrentSentence()
 })
 
 onUnmounted(() => {

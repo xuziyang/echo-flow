@@ -14,12 +14,12 @@ const itemClass = computed(() => {
   if (isActive.value) {
     return app.theme === 'dark'
       ? 'bg-brand-900/20 border-brand-500/30 opacity-100 shadow-md shadow-brand-500/10'
-      : 'bg-gray-200 border-transparent opacity-100 shadow-md shadow-black/5'
+      : 'bg-gray-100 border-transparent opacity-100 shadow-sm shadow-black/5'
   }
 
   return app.theme === 'dark'
     ? `border-transparent opacity-50 ${props.disabled ? 'cursor-not-allowed' : 'hover:opacity-85 hover:bg-white/5 hover:shadow-sm hover:shadow-white/5'}`
-    : `border-transparent opacity-50 ${props.disabled ? 'cursor-not-allowed' : 'hover:opacity-85 hover:bg-gray-100 hover:shadow-sm hover:shadow-black/5'}`
+    : `border-transparent opacity-50 ${props.disabled ? 'cursor-not-allowed' : 'hover:opacity-100 hover:bg-gray-200 hover:shadow-md hover:shadow-black/5'}`
 })
 </script>
 

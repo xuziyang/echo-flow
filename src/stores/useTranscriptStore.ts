@@ -68,6 +68,7 @@ export const useTranscriptStore = defineStore('transcript', () => {
   const hasUnsavedChanges = ref(false)
   const isTranscribing = ref(false)
   const transcribeProgress = ref(0)
+  const transcribeStatus = ref('')
   const transcribeError = ref<string | null>(null)
   const sentenceIdCounter = ref(1)
   const currentAudioPath = ref('')
@@ -177,6 +178,7 @@ export const useTranscriptStore = defineStore('transcript', () => {
     activeTranscribeJobId.value = jobId
     isTranscribing.value = true
     transcribeProgress.value = 0
+    transcribeStatus.value = 'Preparing transcription'
     transcribeError.value = null
     sentences.value = []
     resetEditingState()
@@ -192,6 +194,7 @@ export const useTranscriptStore = defineStore('transcript', () => {
       if (activeTranscribeJobId.value === jobId && currentAudioPath.value === audioPath) {
         const message = String(err)
         transcribeError.value = message
+        transcribeStatus.value = 'Transcription failed'
         isTranscribing.value = false
         activeTranscribeJobId.value = null
         app.showSubtitleToast(message, 'error')
@@ -206,6 +209,7 @@ export const useTranscriptStore = defineStore('transcript', () => {
   function applyTranscribeProgress(event: TranscribeProgressEvent) {
     if (!isCurrentTranscribeTarget(event.job_id, event.audio_path)) return
     transcribeProgress.value = event.percent
+    transcribeStatus.value = event.sentence
   }
 
   function applyTranscribeDone(event: TranscribeDoneEvent) {
@@ -236,6 +240,7 @@ export const useTranscriptStore = defineStore('transcript', () => {
     sentenceIdCounter.value = sentences.value.length + 1
     isTranscribing.value = false
     transcribeProgress.value = 100
+    transcribeStatus.value = 'Subtitles ready'
     activeTranscribeJobId.value = null
   }
 
@@ -243,6 +248,7 @@ export const useTranscriptStore = defineStore('transcript', () => {
     if (!isCurrentTranscribeTarget(event.job_id, event.audio_path)) return
 
     transcribeError.value = event.error
+    transcribeStatus.value = 'Transcription failed'
     isTranscribing.value = false
     activeTranscribeJobId.value = null
     app.showSubtitleToast(event.error, 'error')
@@ -250,7 +256,7 @@ export const useTranscriptStore = defineStore('transcript', () => {
 
   return {
     sentences, isEditing, editingIndex, draftSentences, hasUnsavedChanges,
-    isTranscribing, transcribeProgress, transcribeError,
+    isTranscribing, transcribeProgress, transcribeStatus, transcribeError,
     sentenceIdCounter, currentAudioPath, activeTranscribeJobId, displaySentences,
     cloneSentence, enterEditMode, cancelEdits, saveEdits,
     startEditing, finishEditing, updateDraft,

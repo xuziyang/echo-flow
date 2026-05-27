@@ -2,10 +2,12 @@
 import { computed } from 'vue'
 import { useAppStore } from '../../stores/useAppStore'
 import { usePlayerStore } from '../../stores/usePlayerStore'
+import { useTranscriptStore } from '../../stores/useTranscriptStore'
 import PlaybackControls from './PlaybackControls.vue'
 
 const app = useAppStore()
 const player = usePlayerStore()
+const transcript = useTranscriptStore()
 
 const trackName = computed(() => {
   if (!player.currentPath) return 'No audio loaded'
@@ -14,8 +16,17 @@ const trackName = computed(() => {
 })
 
 const statusLabel = computed(() => {
+  if (transcript.isTranscribing) return `Generating subtitles ${Math.round(transcript.transcribeProgress)}%`
+  if (transcript.transcribeError) return 'Subtitle generation failed'
   if (!player.currentPath || player.durationMs <= 0) return 'Ready'
   return player.isPlaying ? 'Playing' : 'Paused'
+})
+
+const statusTone = computed(() => {
+  if (transcript.transcribeError) return 'error'
+  if (transcript.isTranscribing) return 'working'
+  if (player.isPlaying) return 'active'
+  return 'idle'
 })
 </script>
 
@@ -42,11 +53,19 @@ const statusLabel = computed(() => {
       </div>
 
       <span class="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]"
-            :class="app.theme === 'dark'
-              ? 'border-white/12 bg-white/5 text-gray-300'
-              : 'border-black/10 bg-black/[0.03] text-gray-600'">
+            :class="[
+              app.theme === 'dark'
+                ? 'border-white/12 bg-white/5 text-gray-300'
+                : 'border-black/10 bg-black/[0.03] text-gray-600',
+              statusTone === 'error' ? (app.theme === 'dark' ? 'text-red-200' : 'text-red-700') : '',
+            ]">
         <span class="h-1.5 w-1.5 rounded-full"
-              :class="player.isPlaying ? 'bg-emerald-400' : 'bg-gray-400'" />
+              :class="{
+                'bg-emerald-400': statusTone === 'active',
+                'bg-sky-400 animate-pulse': statusTone === 'working',
+                'bg-red-400': statusTone === 'error',
+                'bg-gray-400': statusTone === 'idle',
+              }" />
         {{ statusLabel }}
       </span>
     </div>

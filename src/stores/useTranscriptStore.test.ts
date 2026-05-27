@@ -48,6 +48,7 @@ describe('useTranscriptStore', () => {
 
     transcript.applyTranscribeProgress(currentProgress)
     expect(transcript.transcribeProgress).toBe(64)
+    expect(transcript.transcribeStatus).toBe('current')
   })
 
   it('applies matching done events and clears active job state', () => {
@@ -70,6 +71,7 @@ describe('useTranscriptStore', () => {
     expect(transcript.sentences).toHaveLength(2)
     expect(transcript.sentences[0]?.en).toBe('Hello there.')
     expect(transcript.transcribeProgress).toBe(100)
+    expect(transcript.transcribeStatus).toBe('Subtitles ready')
     expect(transcript.isTranscribing).toBe(false)
     expect(transcript.activeTranscribeJobId).toBe(null)
   })
@@ -89,6 +91,7 @@ describe('useTranscriptStore', () => {
     transcript.applyTranscribeError(errorEvent)
 
     expect(transcript.transcribeError).toBe('transcription failed')
+    expect(transcript.transcribeStatus).toBe('Transcription failed')
     expect(transcript.isTranscribing).toBe(false)
     expect(transcript.activeTranscribeJobId).toBe(null)
   })

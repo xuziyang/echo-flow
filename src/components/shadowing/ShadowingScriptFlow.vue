@@ -13,9 +13,12 @@ const recording = useRecordingStore()
 const transcript = useTranscriptStore()
 
 const itemRefs = ref<Record<number, HTMLElement | null>>({})
+const counterLabel = computed(() => {
+  if (!transcript.sentences.length) return '0/0'
+  return `${player.currentIndex + 1}/${transcript.sentences.length}`
+})
 const isBusy = computed(() => (
-  player.isPlaying
-  || player.seeking
+  player.seeking
   || recording.isRecording
   || Boolean(recording.activePlaybackMode)
 ))
@@ -55,19 +58,54 @@ watch(() => player.currentIndex, async (index) => {
           :class="app.theme === 'dark' ? 'text-brand-400' : 'text-black'">Script Flow</h3>
       <span class="text-xs font-mono"
             :class="app.theme === 'dark' ? 'text-brand-400' : 'text-black'">
-        {{ player.currentIndex + 1 }}/{{ transcript.sentences.length }}
+        {{ counterLabel }}
       </span>
     </div>
     <div class="flex-1 overflow-y-auto no-scrollbar p-2 space-y-1">
-      <ScriptFlowItem
-        v-for="(item, index) in transcript.sentences"
-        :key="item.id"
-        :ref="(el) => setItemRef(el as any, index)"
-        :item="item"
-        :index="index"
-        :disabled="isBusy"
-        @click="selectSentence(index, item)"
-      />
+      <div v-if="transcript.isTranscribing"
+           class="h-full min-h-40 flex flex-col items-center justify-center gap-3 px-5 text-center">
+        <div class="h-8 w-8 rounded-full border-2 border-transparent animate-spin"
+             :class="app.theme === 'dark' ? 'border-t-brand-400 border-r-brand-400/40' : 'border-t-black border-r-black/30'" />
+        <div class="w-full max-w-56">
+          <div class="flex items-center justify-between gap-3 text-[11px] font-semibold uppercase tracking-wide"
+               :class="app.theme === 'dark' ? 'text-gray-300' : 'text-gray-700'">
+            <span>Generating subtitles</span>
+            <span>{{ Math.round(transcript.transcribeProgress) }}%</span>
+          </div>
+          <div class="mt-2 h-1.5 w-full overflow-hidden rounded-full"
+               :class="app.theme === 'dark' ? 'bg-white/10' : 'bg-black/10'">
+            <div class="h-full rounded-full transition-all duration-300"
+                 :class="app.theme === 'dark' ? 'bg-brand-400' : 'bg-black'"
+                 :style="{ width: `${Math.max(3, Math.min(100, transcript.transcribeProgress))}%` }" />
+          </div>
+          <p class="mt-2 text-xs"
+             :class="app.theme === 'dark' ? 'text-gray-400' : 'text-gray-500'">
+            {{ transcript.transcribeStatus || 'Preparing transcription' }}
+          </p>
+        </div>
+      </div>
+      <div v-else-if="transcript.transcribeError && !transcript.sentences.length"
+           class="h-full min-h-40 flex flex-col items-center justify-center gap-2 px-5 text-center">
+        <p class="text-xs font-semibold uppercase tracking-wide"
+           :class="app.theme === 'dark' ? 'text-red-300' : 'text-red-700'">
+          Subtitle generation failed
+        </p>
+        <p class="max-w-64 text-xs leading-relaxed"
+           :class="app.theme === 'dark' ? 'text-gray-400' : 'text-gray-500'">
+          {{ transcript.transcribeError }}
+        </p>
+      </div>
+      <template v-else>
+        <ScriptFlowItem
+          v-for="(item, index) in transcript.sentences"
+          :key="item.id"
+          :ref="(el) => setItemRef(el as any, index)"
+          :item="item"
+          :index="index"
+          :disabled="isBusy"
+          @click="selectSentence(index, item)"
+        />
+      </template>
     </div>
   </div>
 </template>

@@ -1,3 +1,4 @@
+use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -150,6 +151,7 @@ pub async fn download_model(
     std::fs::create_dir_all(&dir).map_err(|e| format!("Failed to create directory: {}", e))?;
 
     let target_path = dir.join(filename);
+    let temp_path = dir.join(format!("{}.{}.part", filename, download_id));
 
     // Start download in background
     let window_clone = window.clone();
@@ -173,10 +175,23 @@ pub async fn download_model(
             }
         };
 
+        if !response.status().is_success() {
+            let status = response.status();
+            let _ = window_clone.emit(
+                "download-error",
+                DownloadErrorEvent {
+                    download_id,
+                    model_type: model_type_clone,
+                    error: format!("Download failed: HTTP {}", status),
+                },
+            );
+            return;
+        }
+
         let total_bytes = response.content_length();
         let mut downloaded: u64 = 0;
 
-        let mut file = match std::fs::File::create(&target_path) {
+        let mut file = match std::fs::File::create(&temp_path) {
             Ok(f) => f,
             Err(e) => {
                 let _ = window_clone.emit(
@@ -205,12 +220,11 @@ pub async fn download_model(
                             error: format!("Download failed: {}", e),
                         },
                     );
-                    let _ = std::fs::remove_file(&target_path);
+                    let _ = std::fs::remove_file(&temp_path);
                     return;
                 }
             };
 
-            use std::io::Write;
             if let Err(e) = file.write_all(&chunk) {
                 let _ = window_clone.emit(
                     "download-error",
@@ -220,7 +234,7 @@ pub async fn download_model(
                         error: format!("Failed to write file: {}", e),
                     },
                 );
-                let _ = std::fs::remove_file(&target_path);
+                let _ = std::fs::remove_file(&temp_path);
                 return;
             }
 
@@ -242,6 +256,20 @@ pub async fn download_model(
             );
         }
 
+        if let Err(e) = file.sync_all() {
+            let _ = window_clone.emit(
+                "download-error",
+                DownloadErrorEvent {
+                    download_id,
+                    model_type: model_type_clone,
+                    error: format!("Failed to finalize download: {}", e),
+                },
+            );
+            let _ = std::fs::remove_file(&temp_path);
+            return;
+        }
+        drop(file);
+
         // For alignment model, also download the CTC vocabulary.
         if model_type_clone == ModelType::Alignment {
             let vocab_url = format!(
@@ -249,11 +277,13 @@ pub async fn download_model(
                 HF_BASE_URL, HF_ALIGNMENT_REPO, ALIGNMENT_VOCAB_FILENAME
             );
             let vocab_path = dir.join(ALIGNMENT_VOCAB_FILENAME);
+            let vocab_temp_path =
+                dir.join(format!("{}.{}.part", ALIGNMENT_VOCAB_FILENAME, download_id));
 
             match client.get(&vocab_url).send().await {
                 Ok(resp) if resp.status().is_success() => {
                     if let Ok(bytes) = resp.bytes().await {
-                        if let Err(e) = std::fs::write(&vocab_path, &bytes) {
+                        if let Err(e) = std::fs::write(&vocab_temp_path, &bytes) {
                             let _ = window_clone.emit(
                                 "download-error",
                                 DownloadErrorEvent {
@@ -265,7 +295,8 @@ pub async fn download_model(
                                     ),
                                 },
                             );
-                            let _ = std::fs::remove_file(&target_path);
+                            let _ = std::fs::remove_file(&temp_path);
+                            let _ = std::fs::remove_file(&vocab_temp_path);
                             return;
                         }
                     } else {
@@ -277,7 +308,8 @@ pub async fn download_model(
                                 error: format!("Failed to read {}", ALIGNMENT_VOCAB_FILENAME),
                             },
                         );
-                        let _ = std::fs::remove_file(&target_path);
+                        let _ = std::fs::remove_file(&temp_path);
+                        let _ = std::fs::remove_file(&vocab_temp_path);
                         return;
                     }
                 }
@@ -294,7 +326,8 @@ pub async fn download_model(
                             ),
                         },
                     );
-                    let _ = std::fs::remove_file(&target_path);
+                    let _ = std::fs::remove_file(&temp_path);
+                    let _ = std::fs::remove_file(&vocab_temp_path);
                     return;
                 }
                 Err(e) => {
@@ -309,10 +342,44 @@ pub async fn download_model(
                             ),
                         },
                     );
-                    let _ = std::fs::remove_file(&target_path);
+                    let _ = std::fs::remove_file(&temp_path);
+                    let _ = std::fs::remove_file(&vocab_temp_path);
                     return;
                 }
             }
+
+            if vocab_path.exists() {
+                let _ = std::fs::remove_file(&vocab_path);
+            }
+            if let Err(e) = std::fs::rename(&vocab_temp_path, &vocab_path) {
+                let _ = window_clone.emit(
+                    "download-error",
+                    DownloadErrorEvent {
+                        download_id,
+                        model_type: model_type_clone,
+                        error: format!("Failed to install {}: {}", ALIGNMENT_VOCAB_FILENAME, e),
+                    },
+                );
+                let _ = std::fs::remove_file(&temp_path);
+                let _ = std::fs::remove_file(&vocab_temp_path);
+                return;
+            }
+        }
+
+        if target_path.exists() {
+            let _ = std::fs::remove_file(&target_path);
+        }
+        if let Err(e) = std::fs::rename(&temp_path, &target_path) {
+            let _ = window_clone.emit(
+                "download-error",
+                DownloadErrorEvent {
+                    download_id,
+                    model_type: model_type_clone,
+                    error: format!("Failed to install downloaded model: {}", e),
+                },
+            );
+            let _ = std::fs::remove_file(&temp_path);
+            return;
         }
 
         let _ = window_clone.emit(

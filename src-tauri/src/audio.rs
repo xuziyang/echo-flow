@@ -790,9 +790,14 @@ pub fn save_subtitle_file(path: String, entries: Vec<SubtitleEntry>) -> Result<(
 
 /// 保存录音数据到 WAV 文件
 #[tauri::command]
-pub fn save_recording(path: String, samples: Vec<f32>) -> Result<(), String> {
-    let sample_rate = 44100u32;
-    let num_channels = 1u16;
+pub fn save_recording(
+    path: String,
+    samples: Vec<f32>,
+    sample_rate: Option<u32>,
+    channels: Option<u16>,
+) -> Result<(), String> {
+    let sample_rate = sample_rate.unwrap_or(44100).max(1);
+    let num_channels = channels.unwrap_or(1).max(1);
     let bits_per_sample = 16u16;
     let bytes_per_sample = bits_per_sample / 8;
     let block_align = num_channels * bytes_per_sample;

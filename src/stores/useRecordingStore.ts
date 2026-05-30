@@ -9,6 +9,7 @@ import { useTranscriptStore } from './useTranscriptStore'
 interface RecordingResult {
   samples: number[]
   sample_rate: number
+  channels: number
 }
 
 export const useRecordingStore = defineStore('recording', () => {
@@ -21,6 +22,7 @@ export const useRecordingStore = defineStore('recording', () => {
   const recordingSamples = ref<number[]>([])
   const activePlaybackMode = ref<'recording' | 'comparison' | null>(null)
   const recordingSampleRate = ref(44100)
+  const recordingChannels = ref(1)
   const recordingDurationMs = ref(0)
 
   let htmlAudio: HTMLAudioElement | null = null
@@ -89,13 +91,18 @@ export const useRecordingStore = defineStore('recording', () => {
       const result = (await invoke('stop_recording')) as RecordingResult
       recordingSamples.value = result.samples
       recordingSampleRate.value = result.sample_rate
+      recordingChannels.value = result.channels || 1
       recordingDurationMs.value = result.sample_rate > 0
-        ? Math.round((result.samples.length / result.sample_rate) * 1000)
+        ? Math.round((result.samples.length / result.sample_rate / recordingChannels.value) * 1000)
         : 0
 
       // Convert samples to audio URL for playback
       if (recordingSamples.value.length > 0) {
-        const audioData = createWavFromSamples(recordingSamples.value)
+        const audioData = createWavFromSamples(
+          recordingSamples.value,
+          recordingSampleRate.value,
+          recordingChannels.value,
+        )
         revokeUserAudioUrl()
         const blob = new Blob([audioData], { type: 'audio/wav' })
         userAudioUrl.value = URL.createObjectURL(blob)
@@ -138,9 +145,7 @@ export const useRecordingStore = defineStore('recording', () => {
   /**
    * Convert float samples to WAV format
    */
-  function createWavFromSamples(samples: number[]): ArrayBuffer {
-    const sampleRate = 44100
-    const numChannels = 1
+  function createWavFromSamples(samples: number[], sampleRate = 44100, numChannels = 1): ArrayBuffer {
     const bitsPerSample = 16
     const bytesPerSample = bitsPerSample / 8
     const blockAlign = numChannels * bytesPerSample
@@ -279,7 +284,12 @@ export const useRecordingStore = defineStore('recording', () => {
   async function saveRecording(path: string) {
     if (recordingSamples.value.length === 0) return
     try {
-      await invoke('save_recording', { path, data: recordingSamples.value })
+      await invoke('save_recording', {
+        path,
+        samples: recordingSamples.value,
+        sampleRate: recordingSampleRate.value,
+        channels: recordingChannels.value,
+      })
     } catch (error) {
       app.showSubtitleToast(typeof error === 'string' ? error : String(error), 'error')
     }

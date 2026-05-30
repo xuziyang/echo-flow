@@ -54,6 +54,7 @@ pub fn start_recording() -> Result<(), String> {
 
     let sample_rate = config.sample_rate().0;
     let channels = config.channels();
+    let channel_count = usize::from(channels.max(1));
 
     RECORDING_SAMPLE_RATE.store(sample_rate, Ordering::SeqCst);
     RECORDING_DATA.lock().unwrap().clear();
@@ -73,7 +74,10 @@ pub fn start_recording() -> Result<(), String> {
                     move |samples: &[f32], _: &cpal::InputCallbackInfo| {
                         if is_recording.load(Ordering::SeqCst) {
                             let mut buffer = data.lock().unwrap();
-                            buffer.extend_from_slice(samples);
+                            for frame in samples.chunks(channel_count) {
+                                let mono = frame.iter().copied().sum::<f32>() / frame.len() as f32;
+                                buffer.push(mono);
+                            }
                         }
                     },
                     err_fn,
@@ -90,8 +94,13 @@ pub fn start_recording() -> Result<(), String> {
                     move |samples: &[i16], _: &cpal::InputCallbackInfo| {
                         if is_recording.load(Ordering::SeqCst) {
                             let mut buffer = data.lock().unwrap();
-                            for &sample in samples {
-                                buffer.push(sample as f32 / i16::MAX as f32);
+                            for frame in samples.chunks(channel_count) {
+                                let mono = frame
+                                    .iter()
+                                    .map(|&sample| sample as f32 / i16::MAX as f32)
+                                    .sum::<f32>()
+                                    / frame.len() as f32;
+                                buffer.push(mono);
                             }
                         }
                     },
@@ -109,9 +118,13 @@ pub fn start_recording() -> Result<(), String> {
                     move |samples: &[u16], _: &cpal::InputCallbackInfo| {
                         if is_recording.load(Ordering::SeqCst) {
                             let mut buffer = data.lock().unwrap();
-                            for &sample in samples {
-                                let normalized = (sample as f32 / u16::MAX as f32) * 2.0 - 1.0;
-                                buffer.push(normalized);
+                            for frame in samples.chunks(channel_count) {
+                                let mono = frame
+                                    .iter()
+                                    .map(|&sample| (sample as f32 / u16::MAX as f32) * 2.0 - 1.0)
+                                    .sum::<f32>()
+                                    / frame.len() as f32;
+                                buffer.push(mono);
                             }
                         }
                     },
@@ -162,6 +175,7 @@ pub fn stop_recording() -> Result<RecordingData, String> {
     Ok(RecordingData {
         samples,
         sample_rate,
+        channels: 1,
     })
 }
 
@@ -169,6 +183,7 @@ pub fn stop_recording() -> Result<RecordingData, String> {
 pub struct RecordingData {
     pub samples: Vec<f32>,
     pub sample_rate: u32,
+    pub channels: u16,
 }
 
 #[tauri::command]

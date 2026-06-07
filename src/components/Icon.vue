@@ -27,6 +27,7 @@ import {
   Trash2,
   Check,
   CheckCircle,
+  Download,
   Globe,
   GitCompare,
   Indent,
@@ -71,6 +72,7 @@ const icons: Record<string, unknown> = {
   trash: Trash2,
   check: Check,
   'circle-check': CheckCircle,
+  download: Download,
   globe: Globe,
   'code-compare': GitCompare,
 }

@@ -10,6 +10,7 @@ const app = useAppStore()
 const player = usePlayerStore()
 
 function onKeydown(e: KeyboardEvent) {
+  if (app.isSettingsOpen) return
   if (e.code !== 'Space') return
   const tag = (e.target as HTMLElement).tagName
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return

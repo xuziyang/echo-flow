@@ -27,9 +27,9 @@ useDownloadEvents()
       <main class="flex-1 flex overflow-hidden relative">
         <ListeningView v-if="app.mode === 'listening'" />
         <ShadowingView v-if="app.mode === 'shadowing'" />
-        <SettingsView v-if="app.mode === 'settings'" />
       </main>
     </div>
+    <SettingsView v-if="app.isSettingsOpen" />
     <SubtitleToast />
   </div>
 </template>

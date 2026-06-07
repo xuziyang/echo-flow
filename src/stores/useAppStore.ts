@@ -3,10 +3,11 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
 export type ToastType = 'success' | 'error'
+export type AppMode = 'listening' | 'shadowing'
 
 export const useAppStore = defineStore('app', () => {
-  const mode = ref<'listening' | 'shadowing' | 'settings'>('listening')
-  const lastMode = ref<'listening' | 'shadowing' | 'settings'>('listening')
+  const mode = ref<AppMode>('listening')
+  const isSettingsOpen = ref(false)
   const theme = ref<'dark' | 'light'>('dark')
   const showSidebar = ref(true)
   const currentTitle = ref('Lesson 1: Mastering Daily Greetings')
@@ -15,12 +16,9 @@ export const useAppStore = defineStore('app', () => {
   const toastTimer = ref<ReturnType<typeof setTimeout> | null>(null)
 
   function toggleTheme() { theme.value = theme.value === 'dark' ? 'light' : 'dark' }
-  function switchMode(m: 'listening' | 'shadowing' | 'settings') {
-    if (mode.value !== 'settings') lastMode.value = mode.value
-    mode.value = m
-  }
-  function openSettings() { switchMode('settings') }
-  function closeSettings() { mode.value = lastMode.value }
+  function switchMode(m: AppMode) { mode.value = m }
+  function openSettings() { isSettingsOpen.value = true }
+  function closeSettings() { isSettingsOpen.value = false }
   function toggleSidebar() { showSidebar.value = !showSidebar.value }
   function showSubtitleToast(message: string, type: ToastType = 'success') {
     toast.value = message
@@ -32,6 +30,6 @@ export const useAppStore = defineStore('app', () => {
     }, 2200)
   }
 
-  return { mode, lastMode, theme, showSidebar, currentTitle, toast, toastType,
+  return { mode, isSettingsOpen, theme, showSidebar, currentTitle, toast, toastType,
            toggleTheme, switchMode, openSettings, closeSettings, toggleSidebar, showSubtitleToast }
 })

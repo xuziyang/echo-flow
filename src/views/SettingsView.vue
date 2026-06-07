@@ -1,211 +1,381 @@
 <!-- src/views/SettingsView.vue -->
 <script setup lang="ts">
-import { onMounted, onUnmounted, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useAppStore } from '../stores/useAppStore'
 import { useSettingsStore } from '../stores/useSettingsStore'
-import { useModelDownloadStore } from '../stores/useModelDownloadStore'
+import { useModelDownloadStore, type ModelType } from '../stores/useModelDownloadStore'
 import Icon from '../components/Icon.vue'
+
+type SettingsSection = 'general' | 'audio' | 'downloads'
+
+interface ModelOption {
+  type: ModelType
+  name: string
+}
 
 const app = useAppStore()
 const settings = useSettingsStore()
 const modelDownload = useModelDownloadStore()
+const activeSection = ref<SettingsSection>('general')
 
-const whisperModels = [
-  { type: 'whisper-tiny' as const, name: 'Tiny (75MB)' },
-  { type: 'whisper-base' as const, name: 'Base (142MB)' },
-  { type: 'whisper-small' as const, name: 'Small (466MB)' },
-  { type: 'whisper-medium' as const, name: 'Medium (1.5GB)' },
+const sections: Array<{
+  id: SettingsSection
+  label: string
+  icon: string
+}> = [
+  {
+    id: 'general',
+    label: 'General',
+    icon: 'gear',
+  },
+  {
+    id: 'audio',
+    label: 'Audio',
+    icon: 'microphone',
+  },
+  {
+    id: 'downloads',
+    label: 'Model Downloads',
+    icon: 'download',
+  },
 ]
 
-onMounted(() => {
-  modelDownload.checkModels()
-})
+const whisperModels: ModelOption[] = [
+  { type: 'whisper-tiny', name: 'Tiny (75MB)' },
+  { type: 'whisper-base', name: 'Base (142MB)' },
+  { type: 'whisper-small', name: 'Small (466MB)' },
+  { type: 'whisper-medium', name: 'Medium (1.5GB)' },
+]
+
+const supportModels: ModelOption[] = [
+  { type: 'vad', name: 'Silero VAD (1.8MB)' },
+  { type: 'alignment', name: 'Wav2Vec2 (378MB)' },
+]
+
+const currentSection = computed(() => sections.find((section) => section.id === activeSection.value) ?? sections[0])
 
 let modelDirectoryCheckTimer: ReturnType<typeof setTimeout> | null = null
+
+function onKeydown(e: KeyboardEvent) {
+  if (e.key !== 'Escape') return
+  e.preventDefault()
+  e.stopPropagation()
+  app.closeSettings()
+}
+
+function requestDownload(type: ModelType) {
+  void modelDownload.downloadModel(type)
+}
+
+function requestDelete(type: ModelType) {
+  void modelDownload.deleteModel(type)
+}
 
 watch(() => settings.modelDirectory, () => {
   if (modelDirectoryCheckTimer) clearTimeout(modelDirectoryCheckTimer)
   modelDirectoryCheckTimer = setTimeout(() => {
-    modelDownload.checkModels()
+    void modelDownload.checkModels()
     modelDirectoryCheckTimer = null
   }, 300)
 })
 
+onMounted(() => {
+  void modelDownload.checkModels()
+  window.addEventListener('keydown', onKeydown, { capture: true })
+})
+
 onUnmounted(() => {
   if (modelDirectoryCheckTimer) clearTimeout(modelDirectoryCheckTimer)
+  window.removeEventListener('keydown', onKeydown, { capture: true })
 })
 </script>
 
 <template>
-  <div class="flex-1 flex flex-col overflow-hidden items-center justify-center relative transition-colors duration-500"
-       :class="app.theme === 'dark' ? 'bg-dark-bg text-dark-text' : 'bg-light-bg text-light-text'">
-    <div class="w-full max-w-lg p-8 rounded-2xl border shadow-2xl relative"
-         :class="app.theme === 'dark' ? 'bg-dark-card border-dark-border' : 'bg-light-card border-light-border'">
+  <div
+    class="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6"
+    :class="app.theme === 'dark' ? 'bg-black/60 text-dark-text' : 'bg-zinc-950/30 text-light-text'"
+    @click.self="app.closeSettings()"
+  >
+    <section
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="settings-title"
+      class="flex h-[min(720px,calc(100vh-48px))] w-full max-w-[860px] overflow-hidden rounded-lg border shadow-2xl"
+      :class="app.theme === 'dark' ? 'bg-dark-card border-dark-border' : 'bg-white border-light-border'"
+      @click.stop
+    >
+      <aside
+        class="hidden w-60 flex-shrink-0 border-r p-3 sm:block"
+        :class="app.theme === 'dark' ? 'border-dark-border bg-dark-bg/60' : 'border-light-border bg-zinc-50'"
+      >
+        <div class="px-2 py-3">
+          <h2
+            id="settings-title"
+            class="text-lg font-semibold"
+            :class="app.theme === 'dark' ? 'text-white' : 'text-zinc-950'"
+          >
+            Settings
+          </h2>
+        </div>
 
-      <!-- Close Button -->
-      <button @click="app.closeSettings()"
-              class="absolute top-4 right-4 text-gray-500 hover:text-gray-700 transition-colors focus:outline-none">
-        <Icon name="xmark" class="text-xl" />
-      </button>
+        <nav class="mt-3 space-y-1" aria-label="Settings sections">
+          <button
+            v-for="section in sections"
+            :key="section.id"
+            type="button"
+            class="flex w-full items-center gap-3 rounded px-3 py-2.5 text-left text-sm font-medium transition-colors"
+            :class="activeSection === section.id
+              ? (app.theme === 'dark' ? 'bg-white/10 text-white' : 'bg-zinc-900 text-white')
+              : (app.theme === 'dark' ? 'text-dark-subtext hover:bg-white/5 hover:text-white' : 'text-light-subtext hover:bg-zinc-100 hover:text-zinc-950')"
+            @click="activeSection = section.id"
+          >
+            <Icon :name="section.icon" />
+            <span class="min-w-0 truncate">{{ section.label }}</span>
+          </button>
+        </nav>
+      </aside>
 
-      <h2 class="text-2xl font-bold mb-6" :class="app.theme === 'dark' ? 'text-white' : 'text-black'">Settings</h2>
-
-      <div class="space-y-6">
-        <!-- Input Device -->
-        <div>
-          <label class="block text-xs font-bold uppercase tracking-wider mb-2"
-                 :class="app.theme === 'dark' ? 'text-brand-400' : 'text-gray-500'">Microphone (Input)</label>
-          <div class="relative">
-            <select v-model="settings.selectedInputId"
-                    class="w-full p-3 rounded-lg border appearance-none focus:ring-2 focus:ring-brand-500 focus:border-transparent outline-none transition-all"
-                    :class="app.theme === 'dark' ? 'bg-dark-bg border-gray-700 text-white' : 'bg-white border-gray-300 text-black'">
-              <option v-if="settings.audioInputDevices.length === 0" value="">No microphones found</option>
-              <option v-for="device in settings.audioInputDevices" :key="device.deviceId" :value="device.deviceId">
-                {{ device.label || `Microphone ${device.deviceId.slice(0,5)}...` }}
-              </option>
-            </select>
-            <div class="absolute inset-y-0 right-0 flex items-center px-3 pointer-events-none text-gray-500">
-              <Icon name="microphone" class="text-xs" />
-            </div>
+      <div class="flex min-w-0 flex-1 flex-col">
+        <header
+          class="flex flex-shrink-0 items-start justify-between gap-4 border-b px-5 py-4 sm:px-6"
+          :class="app.theme === 'dark' ? 'border-dark-border' : 'border-light-border'"
+        >
+          <div class="min-w-0">
+            <h2
+              class="text-xl font-semibold"
+              :class="app.theme === 'dark' ? 'text-white' : 'text-zinc-950'"
+            >
+              {{ currentSection.label }}
+            </h2>
           </div>
-          <p class="mt-2 text-xs text-gray-500">Select the device you want to use for recording your voice.</p>
-        </div>
 
-        <!-- Output Device -->
-        <div v-if="settings.audioOutputDevices.length > 0">
-          <label class="block text-xs font-bold uppercase tracking-wider mb-2"
-                 :class="app.theme === 'dark' ? 'text-brand-400' : 'text-gray-500'">Speakers (Output)</label>
-          <div class="relative">
-            <select v-model="settings.selectedOutputId"
-                    class="w-full p-3 rounded-lg border appearance-none focus:ring-2 focus:ring-brand-500 focus:border-transparent outline-none transition-all"
-                    :class="app.theme === 'dark' ? 'bg-dark-bg border-gray-700 text-white' : 'bg-white border-gray-300 text-black'">
-              <option v-for="device in settings.audioOutputDevices" :key="device.deviceId" :value="device.deviceId">
-                {{ device.label || `Speaker ${device.deviceId.slice(0,5)}...` }}
-              </option>
-            </select>
-            <div class="absolute inset-y-0 right-0 flex items-center px-3 pointer-events-none text-gray-500">
-              <Icon name="volume-high" class="text-xs" />
-            </div>
+          <button
+            type="button"
+            class="rounded p-2 transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500"
+            :class="app.theme === 'dark' ? 'text-dark-subtext hover:bg-white/10 hover:text-white' : 'text-light-subtext hover:bg-zinc-100 hover:text-zinc-950'"
+            aria-label="Close settings"
+            @click="app.closeSettings()"
+          >
+            <Icon name="xmark" />
+          </button>
+        </header>
+
+        <div class="border-b px-5 py-3 sm:hidden" :class="app.theme === 'dark' ? 'border-dark-border' : 'border-light-border'">
+          <div class="grid grid-cols-3 gap-2">
+            <button
+              v-for="section in sections"
+              :key="section.id"
+              type="button"
+              class="flex items-center justify-center gap-1.5 rounded px-2 py-2 text-xs font-medium transition-colors"
+              :class="activeSection === section.id
+                ? (app.theme === 'dark' ? 'bg-white/10 text-white' : 'bg-zinc-900 text-white')
+                : (app.theme === 'dark' ? 'text-dark-subtext hover:bg-white/5 hover:text-white' : 'text-light-subtext hover:bg-zinc-100 hover:text-zinc-950')"
+              @click="activeSection = section.id"
+            >
+              <Icon :name="section.icon" :size="14" />
+              <span class="truncate">{{ section.label }}</span>
+            </button>
           </div>
-          <p class="mt-2 text-xs text-gray-500">Note: Output device selection depends on browser support.</p>
         </div>
 
-        <!-- Model Directory -->
-        <div>
-          <label class="block text-xs font-bold uppercase tracking-wider mb-2"
-                 :class="app.theme === 'dark' ? 'text-brand-400' : 'text-gray-500'">Model Directory</label>
-          <input v-model="settings.modelDirectory"
-                 type="text"
-                 placeholder="/home/user/.cache/echo-flow/models"
-                 class="w-full p-3 rounded-lg border focus:ring-2 focus:ring-brand-500 focus:border-transparent outline-none transition-all"
-                 :class="app.theme === 'dark' ? 'bg-dark-bg border-gray-700 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-black placeholder-gray-400'" />
-          <p class="mt-2 text-xs text-gray-500">Custom directory for AI models (Whisper, VAD, Aligner). Use ~ for home directory. Leave empty to use default.</p>
-        </div>
+        <div class="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-6">
+          <div v-if="activeSection === 'general'" class="space-y-5">
+            <section
+              class="rounded-lg border p-4"
+              :class="app.theme === 'dark' ? 'border-dark-border bg-dark-bg/40' : 'border-light-border bg-zinc-50'"
+            >
+              <label
+                class="block text-xs font-bold uppercase tracking-wider"
+                :class="app.theme === 'dark' ? 'text-brand-400' : 'text-gray-500'"
+              >
+                Model Directory
+              </label>
+              <input
+                v-model="settings.modelDirectory"
+                type="text"
+                placeholder="/home/user/.cache/echo-flow/models"
+                class="mt-3 w-full rounded-lg border p-3 outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-brand-500"
+                :class="app.theme === 'dark'
+                  ? 'bg-dark-bg border-gray-700 text-white placeholder-gray-500'
+                  : 'bg-white border-gray-300 text-black placeholder-gray-400'"
+              />
+            </section>
+          </div>
 
-        <!-- Model Downloads -->
-        <div>
-          <label class="block text-xs font-bold uppercase tracking-wider mb-2"
-                 :class="app.theme === 'dark' ? 'text-brand-400' : 'text-gray-500'">Whisper Models</label>
-          <div class="space-y-2">
-            <div v-for="model in whisperModels"
-                 :key="model.type"
-                 class="flex items-center justify-between p-2 rounded-lg"
-                 :class="app.theme === 'dark' ? 'bg-dark-bg' : 'bg-gray-50'">
-              <span class="text-sm" :class="app.theme === 'dark' ? 'text-white' : 'text-black'">{{ model.name }}</span>
-              <div class="flex items-center gap-2">
-                <span v-if="modelDownload.isModelInstalled(model.type)"
-                      class="text-xs text-green-500">Installed</span>
-                <button v-if="!modelDownload.isModelInstalled(model.type)"
-                        @click="modelDownload.downloadModel(model.type)"
-                        :disabled="modelDownload.isDownloading"
-                        class="px-3 py-1 text-xs rounded-md transition-colors"
-                        :class="app.theme === 'dark' ? 'bg-brand-500 text-white hover:bg-brand-600' : 'bg-brand-500 text-white hover:bg-brand-600'">
-                  Download
-                </button>
-                <button v-else
-                        @click="modelDownload.deleteModel(model.type)"
-                        class="px-3 py-1 text-xs rounded-md transition-colors text-red-500 hover:bg-red-100">
-                  Delete
-                </button>
+          <div v-else-if="activeSection === 'audio'" class="space-y-5">
+            <section
+              class="rounded-lg border p-4"
+              :class="app.theme === 'dark' ? 'border-dark-border bg-dark-bg/40' : 'border-light-border bg-zinc-50'"
+            >
+              <label
+                class="block text-xs font-bold uppercase tracking-wider"
+                :class="app.theme === 'dark' ? 'text-brand-400' : 'text-gray-500'"
+              >
+                Microphone (Input)
+              </label>
+              <div class="relative mt-3">
+                <select
+                  v-model="settings.selectedInputId"
+                  class="w-full appearance-none rounded-lg border p-3 outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-brand-500"
+                  :class="app.theme === 'dark' ? 'bg-dark-bg border-gray-700 text-white' : 'bg-white border-gray-300 text-black'"
+                >
+                  <option v-if="settings.audioInputDevices.length === 0" value="">No microphones found</option>
+                  <option v-for="device in settings.audioInputDevices" :key="device.deviceId" :value="device.deviceId">
+                    {{ device.label || `Microphone ${device.deviceId.slice(0, 5)}...` }}
+                  </option>
+                </select>
+                <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-gray-500">
+                  <Icon name="microphone" class="text-xs" />
+                </div>
               </div>
-            </div>
-          </div>
-        </div>
+            </section>
 
-        <!-- VAD Model -->
-        <div>
-          <label class="block text-xs font-bold uppercase tracking-wider mb-2"
-                 :class="app.theme === 'dark' ? 'text-brand-400' : 'text-gray-500'">VAD Model</label>
-          <div class="flex items-center justify-between p-2 rounded-lg"
-               :class="app.theme === 'dark' ? 'bg-dark-bg' : 'bg-gray-50'">
-            <span class="text-sm" :class="app.theme === 'dark' ? 'text-white' : 'text-black'">Silero VAD (1.8MB)</span>
-            <div class="flex items-center gap-2">
-              <span v-if="modelDownload.isModelInstalled('vad')"
-                    class="text-xs text-green-500">Installed</span>
-              <button v-if="!modelDownload.isModelInstalled('vad')"
-                      @click="modelDownload.downloadModel('vad')"
+            <section
+              v-if="settings.audioOutputDevices.length > 0"
+              class="rounded-lg border p-4"
+              :class="app.theme === 'dark' ? 'border-dark-border bg-dark-bg/40' : 'border-light-border bg-zinc-50'"
+            >
+              <label
+                class="block text-xs font-bold uppercase tracking-wider"
+                :class="app.theme === 'dark' ? 'text-brand-400' : 'text-gray-500'"
+              >
+                Speakers (Output)
+              </label>
+              <div class="relative mt-3">
+                <select
+                  v-model="settings.selectedOutputId"
+                  class="w-full appearance-none rounded-lg border p-3 outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-brand-500"
+                  :class="app.theme === 'dark' ? 'bg-dark-bg border-gray-700 text-white' : 'bg-white border-gray-300 text-black'"
+                >
+                  <option v-for="device in settings.audioOutputDevices" :key="device.deviceId" :value="device.deviceId">
+                    {{ device.label || `Speaker ${device.deviceId.slice(0, 5)}...` }}
+                  </option>
+                </select>
+                <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-gray-500">
+                  <Icon name="volume-high" class="text-xs" />
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <div v-else class="space-y-5">
+            <section
+              class="rounded-lg border p-4"
+              :class="app.theme === 'dark' ? 'border-dark-border bg-dark-bg/40' : 'border-light-border bg-zinc-50'"
+            >
+              <h3
+                class="text-xs font-bold uppercase tracking-wider"
+                :class="app.theme === 'dark' ? 'text-brand-400' : 'text-gray-500'"
+              >
+                Whisper Models
+              </h3>
+              <div class="mt-3 space-y-2">
+                <div
+                  v-for="model in whisperModels"
+                  :key="model.type"
+                  class="flex items-center justify-between gap-3 rounded-lg p-3"
+                  :class="app.theme === 'dark' ? 'bg-dark-bg' : 'bg-white'"
+                >
+                  <span class="text-sm" :class="app.theme === 'dark' ? 'text-white' : 'text-black'">{{ model.name }}</span>
+                  <div class="flex items-center gap-2">
+                    <span v-if="modelDownload.isModelInstalled(model.type)" class="text-xs text-green-500">Installed</span>
+                    <button
+                      v-if="!modelDownload.isModelInstalled(model.type)"
+                      type="button"
                       :disabled="modelDownload.isDownloading"
-                      class="px-3 py-1 text-xs rounded-md transition-colors"
-                      :class="app.theme === 'dark' ? 'bg-brand-500 text-white hover:bg-brand-600' : 'bg-brand-500 text-white hover:bg-brand-600'">
-                Download
-              </button>
-              <button v-else
-                      @click="modelDownload.deleteModel('vad')"
-                      class="px-3 py-1 text-xs rounded-md transition-colors text-red-500 hover:bg-red-100">
-                Delete
-              </button>
-            </div>
-          </div>
-        </div>
+                      class="rounded-md bg-brand-500 px-3 py-1 text-xs text-white transition-colors hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-50"
+                      @click="requestDownload(model.type)"
+                    >
+                      Download
+                    </button>
+                    <button
+                      v-else
+                      type="button"
+                      class="rounded-md px-3 py-1 text-xs text-red-500 transition-colors hover:bg-red-100"
+                      @click="requestDelete(model.type)"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </section>
 
-        <!-- Alignment Model -->
-        <div>
-          <label class="block text-xs font-bold uppercase tracking-wider mb-2"
-                 :class="app.theme === 'dark' ? 'text-brand-400' : 'text-gray-500'">Alignment Model</label>
-          <div class="flex items-center justify-between p-2 rounded-lg"
-               :class="app.theme === 'dark' ? 'bg-dark-bg' : 'bg-gray-50'">
-            <span class="text-sm" :class="app.theme === 'dark' ? 'text-white' : 'text-black'">Wav2Vec2 (378MB)</span>
-            <div class="flex items-center gap-2">
-              <span v-if="modelDownload.isModelInstalled('alignment')"
-                    class="text-xs text-green-500">Installed</span>
-              <button v-if="!modelDownload.isModelInstalled('alignment')"
-                      @click="modelDownload.downloadModel('alignment')"
+            <section
+              class="rounded-lg border p-4"
+              :class="app.theme === 'dark' ? 'border-dark-border bg-dark-bg/40' : 'border-light-border bg-zinc-50'"
+            >
+              <h3
+                class="text-xs font-bold uppercase tracking-wider"
+                :class="app.theme === 'dark' ? 'text-brand-400' : 'text-gray-500'"
+              >
+                Support Models
+              </h3>
+              <div class="mt-3 space-y-2">
+                <div
+                  v-for="model in supportModels"
+                  :key="model.type"
+                  class="flex items-center justify-between gap-3 rounded-lg p-3"
+                  :class="app.theme === 'dark' ? 'bg-dark-bg' : 'bg-white'"
+                >
+                  <span class="text-sm" :class="app.theme === 'dark' ? 'text-white' : 'text-black'">{{ model.name }}</span>
+                  <div class="flex items-center gap-2">
+                    <span v-if="modelDownload.isModelInstalled(model.type)" class="text-xs text-green-500">Installed</span>
+                    <button
+                      v-if="!modelDownload.isModelInstalled(model.type)"
+                      type="button"
                       :disabled="modelDownload.isDownloading"
-                      class="px-3 py-1 text-xs rounded-md transition-colors"
-                      :class="app.theme === 'dark' ? 'bg-brand-500 text-white hover:bg-brand-600' : 'bg-brand-500 text-white hover:bg-brand-600'">
-                Download
-              </button>
-              <button v-else
-                      @click="modelDownload.deleteModel('alignment')"
-                      class="px-3 py-1 text-xs rounded-md transition-colors text-red-500 hover:bg-red-100">
-                Delete
-              </button>
-            </div>
+                      class="rounded-md bg-brand-500 px-3 py-1 text-xs text-white transition-colors hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-50"
+                      @click="requestDownload(model.type)"
+                    >
+                      Download
+                    </button>
+                    <button
+                      v-else
+                      type="button"
+                      class="rounded-md px-3 py-1 text-xs text-red-500 transition-colors hover:bg-red-100"
+                      @click="requestDelete(model.type)"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section
+              v-if="modelDownload.isDownloading"
+              class="rounded-lg border p-4"
+              :class="app.theme === 'dark' ? 'border-gray-700 bg-dark-bg' : 'border-gray-200 bg-gray-50'"
+            >
+              <div class="mb-2 flex items-center justify-between">
+                <span class="text-sm" :class="app.theme === 'dark' ? 'text-white' : 'text-black'">Downloading...</span>
+                <span class="text-xs text-gray-500">{{ modelDownload.downloadProgressPercent.toFixed(0) }}%</span>
+              </div>
+              <div class="h-2 w-full overflow-hidden rounded-full" :class="app.theme === 'dark' ? 'bg-gray-700' : 'bg-gray-200'">
+                <div
+                  class="h-full bg-brand-500 transition-all duration-300"
+                  :style="{ width: `${modelDownload.downloadProgressPercent}%` }"
+                ></div>
+              </div>
+            </section>
           </div>
         </div>
 
-        <!-- Download Progress -->
-        <div v-if="modelDownload.isDownloading" class="p-3 rounded-lg border"
-             :class="app.theme === 'dark' ? 'bg-dark-bg border-gray-700' : 'bg-gray-50 border-gray-200'">
-          <div class="flex items-center justify-between mb-2">
-            <span class="text-sm" :class="app.theme === 'dark' ? 'text-white' : 'text-black'">Downloading...</span>
-            <span class="text-xs text-gray-500">{{ modelDownload.downloadProgressPercent.toFixed(0) }}%</span>
-          </div>
-          <div class="w-full h-2 rounded-full overflow-hidden"
-               :class="app.theme === 'dark' ? 'bg-gray-700' : 'bg-gray-200'">
-            <div class="h-full bg-brand-500 transition-all duration-300"
-                 :style="{ width: `${modelDownload.downloadProgressPercent}%` }"></div>
-          </div>
-        </div>
+        <footer
+          class="flex flex-shrink-0 justify-end border-t px-5 py-4 sm:px-6"
+          :class="app.theme === 'dark' ? 'border-dark-border' : 'border-light-border'"
+        >
+          <button
+            type="button"
+            class="rounded-lg px-6 py-2 font-medium transition-colors"
+            :class="app.theme === 'dark' ? 'bg-white text-black hover:bg-gray-200' : 'bg-black text-white hover:bg-gray-800'"
+            @click="app.closeSettings()"
+          >
+            Done
+          </button>
+        </footer>
       </div>
-
-      <div class="mt-8 pt-6 border-t flex justify-end" :class="app.theme === 'dark' ? 'border-gray-800' : 'border-gray-200'">
-        <button @click="app.closeSettings()"
-                class="px-6 py-2 rounded-lg font-medium transition-colors"
-                :class="app.theme === 'dark' ? 'bg-white text-black hover:bg-gray-200' : 'bg-black text-white hover:bg-gray-800'">
-          Done
-        </button>
-      </div>
-    </div>
+    </section>
   </div>
 </template>

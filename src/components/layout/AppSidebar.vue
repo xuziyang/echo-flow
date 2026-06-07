@@ -10,7 +10,7 @@ const files = useFilesStore()
 <template>
   <div class="w-64 border-r flex flex-col flex-shrink-0 z-20 transition-all duration-300"
        :class="{
-         'w-0 opacity-0 overflow-hidden': !app.showSidebar || app.mode === 'settings',
+         'w-0 opacity-0 overflow-hidden': !app.showSidebar,
          'bg-dark-bg border-gray-800/50': app.theme === 'dark',
          'bg-gray-50 border-gray-200': app.theme !== 'dark'
        }">

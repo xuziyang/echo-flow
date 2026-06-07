@@ -26,6 +26,7 @@ function playCurrentSentence() {
 }
 
 function onKeydown(e: KeyboardEvent) {
+  if (app.isSettingsOpen) return
   const tag = (e.target as HTMLElement).tagName
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
 

@@ -23,6 +23,11 @@ export interface DownloadErrorEvent {
   error: string
 }
 
+export interface DownloadCanceledEvent {
+  downloadId: number
+  modelType: string
+}
+
 export function useDownloadEvents() {
   const modelStore = useModelDownloadStore()
   const unlisteners: UnlistenFn[] = []
@@ -40,6 +45,7 @@ export function useDownloadEvents() {
       'download-complete',
       async () => {
         modelStore.downloadingType = null
+        modelStore.currentDownloadId = null
         modelStore.downloadProgress = null
         modelStore.downloadProgressPercent = 0
         await modelStore.checkModels()
@@ -50,12 +56,23 @@ export function useDownloadEvents() {
       'download-error',
       () => {
         modelStore.downloadingType = null
+        modelStore.currentDownloadId = null
         modelStore.downloadProgress = null
         modelStore.downloadProgressPercent = 0
       },
     )
 
-    unlisteners.push(unlistenProgress, unlistenComplete, unlistenError)
+    const unlistenCanceled = await listen<DownloadCanceledEvent>(
+      'download-canceled',
+      () => {
+        modelStore.downloadingType = null
+        modelStore.currentDownloadId = null
+        modelStore.downloadProgress = null
+        modelStore.downloadProgressPercent = 0
+      },
+    )
+
+    unlisteners.push(unlistenProgress, unlistenComplete, unlistenError, unlistenCanceled)
   }
 
   // 立即设置监听器（不等待 onMounted）

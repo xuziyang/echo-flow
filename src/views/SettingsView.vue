@@ -1,8 +1,11 @@
 <!-- src/views/SettingsView.vue -->
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { invoke } from '@tauri-apps/api/core'
+import { open } from '@tauri-apps/plugin-dialog'
+import { openPath } from '@tauri-apps/plugin-opener'
 import { useAppStore } from '../stores/useAppStore'
-import { useSettingsStore } from '../stores/useSettingsStore'
+import { useSettingsStore, type WhisperModelType } from '../stores/useSettingsStore'
 import { useModelDownloadStore, type ModelType } from '../stores/useModelDownloadStore'
 import Icon from '../components/Icon.vue'
 
@@ -10,6 +13,11 @@ type SettingsSection = 'general' | 'audio' | 'downloads'
 
 interface ModelOption {
   type: ModelType
+  name: string
+}
+
+interface WhisperModelOption {
+  type: WhisperModelType
   name: string
 }
 
@@ -40,7 +48,7 @@ const sections: Array<{
   },
 ]
 
-const whisperModels: ModelOption[] = [
+const whisperModels: WhisperModelOption[] = [
   { type: 'whisper-tiny', name: 'Tiny (75MB)' },
   { type: 'whisper-base', name: 'Base (142MB)' },
   { type: 'whisper-small', name: 'Small (466MB)' },
@@ -69,6 +77,38 @@ function requestDownload(type: ModelType) {
 
 function requestDelete(type: ModelType) {
   void modelDownload.deleteModel(type)
+}
+
+function requestCancelDownload() {
+  void modelDownload.cancelDownload()
+}
+
+function setDefaultWhisperModel(type: WhisperModelType) {
+  settings.selectedWhisperModel = type
+}
+
+async function chooseModelFolder() {
+  const selected = await open({
+    directory: true,
+    multiple: false,
+    defaultPath: settings.modelDirectory || undefined,
+    canCreateDirectories: true,
+  })
+
+  if (typeof selected === 'string') {
+    settings.modelDirectory = selected
+  }
+}
+
+async function openModelFolder() {
+  try {
+    const modelFolder = await invoke<string>('ensure_model_dir', {
+      modelDir: settings.modelDirectory || null,
+    })
+    await openPath(modelFolder)
+  } catch (error) {
+    app.showSubtitleToast(typeof error === 'string' ? error : String(error), 'error')
+  }
 }
 
 watch(() => settings.modelDirectory, () => {
@@ -111,7 +151,7 @@ onUnmounted(() => {
         <div class="px-2 py-3">
           <h2
             id="settings-title"
-            class="text-lg font-semibold"
+            class="text-base font-medium"
             :class="app.theme === 'dark' ? 'text-white' : 'text-zinc-950'"
           >
             Settings
@@ -142,7 +182,7 @@ onUnmounted(() => {
         >
           <div class="min-w-0">
             <h2
-              class="text-xl font-semibold"
+              class="text-base font-medium"
               :class="app.theme === 'dark' ? 'text-white' : 'text-zinc-950'"
             >
               {{ currentSection.label }}
@@ -181,24 +221,55 @@ onUnmounted(() => {
         <div class="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-6">
           <div v-if="activeSection === 'general'" class="space-y-5">
             <section
-              class="rounded-lg border p-4"
+              class="overflow-hidden rounded-lg border"
               :class="app.theme === 'dark' ? 'border-dark-border bg-dark-bg/40' : 'border-light-border bg-zinc-50'"
             >
-              <label
-                class="block text-xs font-bold uppercase tracking-wider"
-                :class="app.theme === 'dark' ? 'text-brand-400' : 'text-gray-500'"
-              >
-                Model Directory
-              </label>
-              <input
-                v-model="settings.modelDirectory"
-                type="text"
-                placeholder="/home/user/.cache/echo-flow/models"
-                class="mt-3 w-full rounded-lg border p-3 outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-brand-500"
-                :class="app.theme === 'dark'
-                  ? 'bg-dark-bg border-gray-700 text-white placeholder-gray-500'
-                  : 'bg-white border-gray-300 text-black placeholder-gray-400'"
-              />
+              <div class="flex items-center gap-4 px-5 py-5">
+                <Icon
+                  name="box"
+                  class="flex-shrink-0"
+                  :size="24"
+                  :class="app.theme === 'dark' ? 'text-white' : 'text-zinc-950'"
+                />
+                <div class="min-w-0 flex-1">
+                  <h3
+                    class="truncate text-sm font-medium"
+                    :class="app.theme === 'dark' ? 'text-white' : 'text-zinc-950'"
+                  >
+                    Model Folder
+                  </h3>
+                  <p
+                    class="mt-1 truncate text-xs"
+                    :class="app.theme === 'dark' ? 'text-dark-subtext' : 'text-slate-500'"
+                  >
+                    {{ settings.modelDirectory || 'Default folder' }}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border shadow-sm transition-colors"
+                  :class="app.theme === 'dark'
+                    ? 'border-gray-700 bg-dark-card text-white hover:bg-white/10'
+                    : 'border-slate-200 bg-white text-zinc-950 hover:bg-slate-50'"
+                  aria-label="Open Folder"
+                  title="Open Folder"
+                  @click="openModelFolder()"
+                >
+                  <Icon name="folder" :size="20" />
+                </button>
+                <button
+                  type="button"
+                  class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border shadow-sm transition-colors"
+                  :class="app.theme === 'dark'
+                    ? 'border-gray-700 bg-dark-card text-white hover:bg-white/10'
+                    : 'border-slate-200 bg-white text-zinc-950 hover:bg-slate-50'"
+                  aria-label="Change"
+                  title="Change"
+                  @click="chooseModelFolder()"
+                >
+                  <Icon name="gear" :size="20" />
+                </button>
+              </div>
             </section>
           </div>
 
@@ -208,7 +279,7 @@ onUnmounted(() => {
               :class="app.theme === 'dark' ? 'border-dark-border bg-dark-bg/40' : 'border-light-border bg-zinc-50'"
             >
               <label
-                class="block text-xs font-bold uppercase tracking-wider"
+                class="block text-xs font-medium"
                 :class="app.theme === 'dark' ? 'text-brand-400' : 'text-gray-500'"
               >
                 Microphone (Input)
@@ -236,7 +307,7 @@ onUnmounted(() => {
               :class="app.theme === 'dark' ? 'border-dark-border bg-dark-bg/40' : 'border-light-border bg-zinc-50'"
             >
               <label
-                class="block text-xs font-bold uppercase tracking-wider"
+                class="block text-xs font-medium"
                 :class="app.theme === 'dark' ? 'text-brand-400' : 'text-gray-500'"
               >
                 Speakers (Output)
@@ -264,7 +335,7 @@ onUnmounted(() => {
               :class="app.theme === 'dark' ? 'border-dark-border bg-dark-bg/40' : 'border-light-border bg-zinc-50'"
             >
               <h3
-                class="text-xs font-bold uppercase tracking-wider"
+                class="text-xs font-medium"
                 :class="app.theme === 'dark' ? 'text-brand-400' : 'text-gray-500'"
               >
                 Whisper Models
@@ -276,11 +347,34 @@ onUnmounted(() => {
                   class="flex items-center justify-between gap-3 rounded-lg p-3"
                   :class="app.theme === 'dark' ? 'bg-dark-bg' : 'bg-white'"
                 >
-                  <span class="text-sm" :class="app.theme === 'dark' ? 'text-white' : 'text-black'">{{ model.name }}</span>
+                  <span class="text-xs" :class="app.theme === 'dark' ? 'text-white' : 'text-black'">{{ model.name }}</span>
                   <div class="flex items-center gap-2">
+                    <span
+                      v-if="modelDownload.isModelInstalled(model.type) && settings.selectedWhisperModel === model.type"
+                      class="rounded bg-sky-500/15 px-2 py-1 text-xs text-sky-500 ring-1 ring-sky-500/25"
+                    >
+                      Default
+                    </span>
+                    <button
+                      v-else-if="modelDownload.isModelInstalled(model.type)"
+                      type="button"
+                      class="rounded-md px-3 py-1 text-xs transition-colors"
+                      :class="app.theme === 'dark' ? 'text-dark-subtext hover:bg-white/10 hover:text-white' : 'text-light-subtext hover:bg-zinc-100 hover:text-zinc-950'"
+                      @click="setDefaultWhisperModel(model.type)"
+                    >
+                      Set default
+                    </button>
                     <span v-if="modelDownload.isModelInstalled(model.type)" class="text-xs text-green-500">Installed</span>
                     <button
-                      v-if="!modelDownload.isModelInstalled(model.type)"
+                      v-if="modelDownload.downloadingType === model.type"
+                      type="button"
+                      class="rounded-md px-3 py-1 text-xs text-red-500 transition-colors hover:bg-red-100"
+                      @click="requestCancelDownload()"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      v-else-if="!modelDownload.isModelInstalled(model.type)"
                       type="button"
                       :disabled="modelDownload.isDownloading"
                       class="rounded-md bg-brand-500 px-3 py-1 text-xs text-white transition-colors hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-50"
@@ -306,7 +400,7 @@ onUnmounted(() => {
               :class="app.theme === 'dark' ? 'border-dark-border bg-dark-bg/40' : 'border-light-border bg-zinc-50'"
             >
               <h3
-                class="text-xs font-bold uppercase tracking-wider"
+                class="text-xs font-medium"
                 :class="app.theme === 'dark' ? 'text-brand-400' : 'text-gray-500'"
               >
                 Support Models
@@ -318,11 +412,19 @@ onUnmounted(() => {
                   class="flex items-center justify-between gap-3 rounded-lg p-3"
                   :class="app.theme === 'dark' ? 'bg-dark-bg' : 'bg-white'"
                 >
-                  <span class="text-sm" :class="app.theme === 'dark' ? 'text-white' : 'text-black'">{{ model.name }}</span>
+                  <span class="text-xs" :class="app.theme === 'dark' ? 'text-white' : 'text-black'">{{ model.name }}</span>
                   <div class="flex items-center gap-2">
                     <span v-if="modelDownload.isModelInstalled(model.type)" class="text-xs text-green-500">Installed</span>
                     <button
-                      v-if="!modelDownload.isModelInstalled(model.type)"
+                      v-if="modelDownload.downloadingType === model.type"
+                      type="button"
+                      class="rounded-md px-3 py-1 text-xs text-red-500 transition-colors hover:bg-red-100"
+                      @click="requestCancelDownload()"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      v-else-if="!modelDownload.isModelInstalled(model.type)"
                       type="button"
                       :disabled="modelDownload.isDownloading"
                       class="rounded-md bg-brand-500 px-3 py-1 text-xs text-white transition-colors hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-50"
@@ -349,8 +451,17 @@ onUnmounted(() => {
               :class="app.theme === 'dark' ? 'border-gray-700 bg-dark-bg' : 'border-gray-200 bg-gray-50'"
             >
               <div class="mb-2 flex items-center justify-between">
-                <span class="text-sm" :class="app.theme === 'dark' ? 'text-white' : 'text-black'">Downloading...</span>
-                <span class="text-xs text-gray-500">{{ modelDownload.downloadProgressPercent.toFixed(0) }}%</span>
+                <span class="text-xs" :class="app.theme === 'dark' ? 'text-white' : 'text-black'">Downloading...</span>
+                <div class="flex items-center gap-3">
+                  <span class="text-xs text-gray-500">{{ modelDownload.downloadProgressPercent.toFixed(0) }}%</span>
+                  <button
+                    type="button"
+                    class="rounded-md px-3 py-1 text-xs text-red-500 transition-colors hover:bg-red-100"
+                    @click="requestCancelDownload()"
+                  >
+                    Cancel
+                  </button>
+                </div>
               </div>
               <div class="h-2 w-full overflow-hidden rounded-full" :class="app.theme === 'dark' ? 'bg-gray-700' : 'bg-gray-200'">
                 <div

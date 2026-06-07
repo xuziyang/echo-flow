@@ -2,10 +2,13 @@
 import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
 
+export type WhisperModelType = 'whisper-tiny' | 'whisper-base' | 'whisper-small' | 'whisper-medium'
+
 interface PersistedSettings {
   selectedInputId?: string
   selectedOutputId?: string
   modelDirectory?: string
+  selectedWhisperModel?: WhisperModelType
 }
 
 const STORAGE_KEY = 'echo-flow:settings'
@@ -18,11 +21,29 @@ function loadPersistedSettings(): PersistedSettings {
     if (!rawSettings) return {}
 
     const settings = JSON.parse(rawSettings)
-    return settings && typeof settings === 'object' ? settings : {}
+    if (!settings || typeof settings !== 'object') return {}
+
+    return {
+      selectedInputId: typeof settings.selectedInputId === 'string' ? settings.selectedInputId : undefined,
+      selectedOutputId: typeof settings.selectedOutputId === 'string' ? settings.selectedOutputId : undefined,
+      modelDirectory: typeof settings.modelDirectory === 'string' ? settings.modelDirectory : undefined,
+      selectedWhisperModel: isWhisperModelType(settings.selectedWhisperModel)
+        ? settings.selectedWhisperModel
+        : undefined,
+    }
   } catch (error) {
     console.warn('Failed to load persisted settings:', error)
     return {}
   }
+}
+
+function isWhisperModelType(value: unknown): value is WhisperModelType {
+  return (
+    value === 'whisper-tiny'
+    || value === 'whisper-base'
+    || value === 'whisper-small'
+    || value === 'whisper-medium'
+  )
 }
 
 function savePersistedSettings(settings: PersistedSettings) {
@@ -42,17 +63,26 @@ export const useSettingsStore = defineStore('settings', () => {
   const selectedInputId = ref(persistedSettings.selectedInputId ?? '')
   const selectedOutputId = ref(persistedSettings.selectedOutputId ?? '')
   const modelDirectory = ref(persistedSettings.modelDirectory ?? '')
+  const selectedWhisperModel = ref<WhisperModelType>(persistedSettings.selectedWhisperModel ?? 'whisper-base')
 
   watch(
-    [selectedInputId, selectedOutputId, modelDirectory],
+    [selectedInputId, selectedOutputId, modelDirectory, selectedWhisperModel],
     () => {
       savePersistedSettings({
         selectedInputId: selectedInputId.value,
         selectedOutputId: selectedOutputId.value,
         modelDirectory: modelDirectory.value,
+        selectedWhisperModel: selectedWhisperModel.value,
       })
     },
   )
 
-  return { audioInputDevices, audioOutputDevices, selectedInputId, selectedOutputId, modelDirectory }
+  return {
+    audioInputDevices,
+    audioOutputDevices,
+    selectedInputId,
+    selectedOutputId,
+    modelDirectory,
+    selectedWhisperModel,
+  }
 })

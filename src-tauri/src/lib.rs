@@ -41,7 +41,9 @@ pub fn run() {
             record::stop_recording,
             record::get_recording_waveform,
             download::list_downloaded_models,
+            download::ensure_model_dir,
             download::download_model,
+            download::cancel_download,
             download::delete_model,
         ])
         .setup(|app| {

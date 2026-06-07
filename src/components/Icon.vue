@@ -28,10 +28,12 @@ import {
   Check,
   CheckCircle,
   Download,
+  FolderOpen,
   Globe,
   GitCompare,
   Indent,
   Outdent,
+  Box,
   type LucideProps,
 } from 'lucide-vue-next'
 import { computed } from 'vue'
@@ -73,8 +75,10 @@ const icons: Record<string, unknown> = {
   check: Check,
   'circle-check': CheckCircle,
   download: Download,
+  folder: FolderOpen,
   globe: Globe,
   'code-compare': GitCompare,
+  box: Box,
 }
 
 const iconComponent = computed(() => icons[props.name])

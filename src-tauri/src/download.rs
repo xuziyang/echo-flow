@@ -1,18 +1,34 @@
 use std::io::Write;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::collections::HashMap;
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Mutex,
+};
 
-use futures_util::StreamExt;
+use futures_util::{
+    future::{AbortHandle, Abortable},
+    StreamExt,
+};
+use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use tauri::Emitter;
 
 static DOWNLOAD_ID: AtomicU64 = AtomicU64::new(0);
+static ACTIVE_DOWNLOADS: Lazy<Mutex<HashMap<u64, ActiveDownload>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
 
 const HF_BASE_URL: &str = "https://huggingface.co";
 const HF_WHISPER_REPO: &str = "ggerganov/whisper.cpp";
 const HF_ALIGNMENT_REPO: &str = "xuziyang/wav2vec2-base-en-onnx";
 const HF_VAD_REPO: &str = "csukuangfj/vad";
 const ALIGNMENT_VOCAB_FILENAME: &str = "wav2vec2-vocab.json";
+
+#[derive(Debug)]
+struct ActiveDownload {
+    abort_handle: AbortHandle,
+    temp_paths: Vec<PathBuf>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
@@ -98,6 +114,13 @@ pub struct DownloadErrorEvent {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct DownloadCanceledEvent {
+    pub download_id: u64,
+    pub model_type: ModelType,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DownloadedModels {
     pub whisper_tiny: bool,
     pub whisper_base: bool,
@@ -137,6 +160,13 @@ pub fn list_downloaded_models(model_dir: Option<String>) -> Result<DownloadedMod
 }
 
 #[tauri::command]
+pub fn ensure_model_dir(model_dir: Option<String>) -> Result<String, String> {
+    let dir = get_model_dir(model_dir);
+    std::fs::create_dir_all(&dir).map_err(|e| format!("Failed to create directory: {}", e))?;
+    Ok(dir.to_string_lossy().to_string())
+}
+
+#[tauri::command]
 pub async fn download_model(
     window: tauri::Window,
     model_type: ModelType,
@@ -152,18 +182,37 @@ pub async fn download_model(
 
     let target_path = dir.join(filename);
     let temp_path = dir.join(format!("{}.{}.part", filename, download_id));
+    let vocab_temp_path = dir.join(format!("{}.{}.part", ALIGNMENT_VOCAB_FILENAME, download_id));
+    let mut temp_paths = vec![temp_path.clone()];
+    if model_type == ModelType::Alignment {
+        temp_paths.push(vocab_temp_path.clone());
+    }
 
     // Start download in background
-    let window_clone = window.clone();
+    let window_for_download = window.clone();
+    let window_for_cancel = window.clone();
     let model_type_clone = model_type.clone();
+    let model_type_for_cancel = model_type.clone();
+    let (abort_handle, abort_registration) = AbortHandle::new_pair();
 
-    tokio::spawn(async move {
+    ACTIVE_DOWNLOADS
+        .lock()
+        .map_err(|e| format!("Failed to register download: {}", e))?
+        .insert(
+            download_id,
+            ActiveDownload {
+                abort_handle,
+                temp_paths,
+            },
+        );
+
+    let download_task = async move {
         let client = reqwest::Client::new();
 
         let response = match client.get(&url).send().await {
             Ok(r) => r,
             Err(e) => {
-                let _ = window_clone.emit(
+                let _ = window_for_download.emit(
                     "download-error",
                     DownloadErrorEvent {
                         download_id,
@@ -177,7 +226,7 @@ pub async fn download_model(
 
         if !response.status().is_success() {
             let status = response.status();
-            let _ = window_clone.emit(
+            let _ = window_for_download.emit(
                 "download-error",
                 DownloadErrorEvent {
                     download_id,
@@ -194,7 +243,7 @@ pub async fn download_model(
         let mut file = match std::fs::File::create(&temp_path) {
             Ok(f) => f,
             Err(e) => {
-                let _ = window_clone.emit(
+                let _ = window_for_download.emit(
                     "download-error",
                     DownloadErrorEvent {
                         download_id,
@@ -212,7 +261,7 @@ pub async fn download_model(
             let chunk = match chunk {
                 Ok(c) => c,
                 Err(e) => {
-                    let _ = window_clone.emit(
+                    let _ = window_for_download.emit(
                         "download-error",
                         DownloadErrorEvent {
                             download_id,
@@ -226,7 +275,7 @@ pub async fn download_model(
             };
 
             if let Err(e) = file.write_all(&chunk) {
-                let _ = window_clone.emit(
+                let _ = window_for_download.emit(
                     "download-error",
                     DownloadErrorEvent {
                         download_id,
@@ -244,7 +293,7 @@ pub async fn download_model(
                 None => 0.0,
             };
 
-            let _ = window_clone.emit(
+            let _ = window_for_download.emit(
                 "download-progress",
                 DownloadProgressEvent {
                     download_id,
@@ -257,7 +306,7 @@ pub async fn download_model(
         }
 
         if let Err(e) = file.sync_all() {
-            let _ = window_clone.emit(
+            let _ = window_for_download.emit(
                 "download-error",
                 DownloadErrorEvent {
                     download_id,
@@ -277,14 +326,12 @@ pub async fn download_model(
                 HF_BASE_URL, HF_ALIGNMENT_REPO, ALIGNMENT_VOCAB_FILENAME
             );
             let vocab_path = dir.join(ALIGNMENT_VOCAB_FILENAME);
-            let vocab_temp_path =
-                dir.join(format!("{}.{}.part", ALIGNMENT_VOCAB_FILENAME, download_id));
 
             match client.get(&vocab_url).send().await {
                 Ok(resp) if resp.status().is_success() => {
                     if let Ok(bytes) = resp.bytes().await {
                         if let Err(e) = std::fs::write(&vocab_temp_path, &bytes) {
-                            let _ = window_clone.emit(
+                            let _ = window_for_download.emit(
                                 "download-error",
                                 DownloadErrorEvent {
                                     download_id,
@@ -300,7 +347,7 @@ pub async fn download_model(
                             return;
                         }
                     } else {
-                        let _ = window_clone.emit(
+                        let _ = window_for_download.emit(
                             "download-error",
                             DownloadErrorEvent {
                                 download_id,
@@ -314,7 +361,7 @@ pub async fn download_model(
                     }
                 }
                 Ok(resp) => {
-                    let _ = window_clone.emit(
+                    let _ = window_for_download.emit(
                         "download-error",
                         DownloadErrorEvent {
                             download_id,
@@ -331,7 +378,7 @@ pub async fn download_model(
                     return;
                 }
                 Err(e) => {
-                    let _ = window_clone.emit(
+                    let _ = window_for_download.emit(
                         "download-error",
                         DownloadErrorEvent {
                             download_id,
@@ -352,7 +399,7 @@ pub async fn download_model(
                 let _ = std::fs::remove_file(&vocab_path);
             }
             if let Err(e) = std::fs::rename(&vocab_temp_path, &vocab_path) {
-                let _ = window_clone.emit(
+                let _ = window_for_download.emit(
                     "download-error",
                     DownloadErrorEvent {
                         download_id,
@@ -370,7 +417,7 @@ pub async fn download_model(
             let _ = std::fs::remove_file(&target_path);
         }
         if let Err(e) = std::fs::rename(&temp_path, &target_path) {
-            let _ = window_clone.emit(
+            let _ = window_for_download.emit(
                 "download-error",
                 DownloadErrorEvent {
                     download_id,
@@ -382,7 +429,7 @@ pub async fn download_model(
             return;
         }
 
-        let _ = window_clone.emit(
+        let _ = window_for_download.emit(
             "download-complete",
             DownloadCompleteEvent {
                 download_id,
@@ -390,9 +437,47 @@ pub async fn download_model(
                 path: target_path.to_string_lossy().to_string(),
             },
         );
+    };
+
+    tokio::spawn(async move {
+        if Abortable::new(download_task, abort_registration)
+            .await
+            .is_err()
+        {
+            let _ = window_for_cancel.emit(
+                "download-canceled",
+                DownloadCanceledEvent {
+                    download_id,
+                    model_type: model_type_for_cancel,
+                },
+            );
+        }
+        unregister_download(download_id);
     });
 
     Ok(download_id)
+}
+
+#[tauri::command]
+pub fn cancel_download(download_id: u64) -> Result<(), String> {
+    let active_download = ACTIVE_DOWNLOADS
+        .lock()
+        .map_err(|e| format!("Failed to cancel download: {}", e))?
+        .remove(&download_id)
+        .ok_or_else(|| format!("Download {} is not active", download_id))?;
+
+    active_download.abort_handle.abort();
+    for path in active_download.temp_paths {
+        let _ = std::fs::remove_file(path);
+    }
+
+    Ok(())
+}
+
+fn unregister_download(download_id: u64) {
+    if let Ok(mut active_downloads) = ACTIVE_DOWNLOADS.lock() {
+        active_downloads.remove(&download_id);
+    }
 }
 
 #[tauri::command]

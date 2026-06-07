@@ -130,6 +130,7 @@ pub fn transcribe_audio(
     window: tauri::Window,
     audio_path: String,
     model_path: Option<String>,
+    whisper_model: Option<String>,
     model_dir: Option<String>,
     job_id: Option<u64>,
 ) -> Result<u64, String> {
@@ -146,6 +147,10 @@ pub fn transcribe_audio(
     // 解析模型路径
     let whisper_model = match model_path {
         Some(ref p) => resolve_model_path(&PathBuf::from(p), "Whisper model")?,
+        None if whisper_model.is_some() => {
+            let filename = whisper_model_filename(whisper_model.as_deref().unwrap())?;
+            resolve_model_path(&cache_dir.join(filename), "Whisper model")?
+        }
         None => {
             let paths = DEFAULT_WHISPER_MODELS
                 .iter()
@@ -255,4 +260,14 @@ pub fn transcribe_audio(
     });
 
     Ok(resolved_job_id)
+}
+
+fn whisper_model_filename(model: &str) -> Result<&'static str, String> {
+    match model {
+        "whisper-tiny" => Ok("ggml-tiny.en.bin"),
+        "whisper-base" => Ok("ggml-base.en.bin"),
+        "whisper-small" => Ok("ggml-small.en.bin"),
+        "whisper-medium" => Ok("ggml-medium.en.bin"),
+        other => Err(format!("Unsupported Whisper model: {}", other)),
+    }
 }

@@ -187,6 +187,7 @@ export const useTranscriptStore = defineStore('transcript', () => {
       await invoke<number>('transcribe_audio', {
         audioPath,
         modelPath: modelPath ?? null,
+        whisperModel: settings.selectedWhisperModel,
         modelDir: settings.modelDirectory || null,
         jobId,
       })

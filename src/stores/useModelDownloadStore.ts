@@ -2,7 +2,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
-import { useSettingsStore } from './useSettingsStore'
+import { useSettingsStore, type WhisperModelType } from './useSettingsStore'
 
 export type ModelType = 'whisper-tiny' | 'whisper-base' | 'whisper-small' | 'whisper-medium' | 'vad' | 'alignment'
 
@@ -33,29 +33,54 @@ export const useModelDownloadStore = defineStore('modelDownload', () => {
     alignment: false,
   })
   const downloadingType = ref<ModelType | null>(null)
+  const currentDownloadId = ref<number | null>(null)
   const downloadProgress = ref<DownloadProgress | null>(null)
   const downloadProgressPercent = ref(0)
+
+  const whisperModelTypes: WhisperModelType[] = [
+    'whisper-tiny',
+    'whisper-base',
+    'whisper-small',
+    'whisper-medium',
+  ]
 
   async function checkModels() {
     downloadedModels.value = await invoke<DownloadedModels>('list_downloaded_models', {
       modelDir: settings.modelDirectory || null,
     })
+    ensureSelectedWhisperModelIsInstalled()
   }
 
   async function downloadModel(type: ModelType) {
     downloadingType.value = type
+    currentDownloadId.value = null
     downloadProgress.value = null
     downloadProgressPercent.value = 0
 
     try {
-      await invoke('download_model', {
+      currentDownloadId.value = await invoke<number>('download_model', {
         modelType: type,
         modelDir: settings.modelDirectory || null,
       })
     } catch (error) {
+      downloadingType.value = null
+      currentDownloadId.value = null
+      downloadProgress.value = null
+      downloadProgressPercent.value = 0
       console.error('Download failed:', error)
       throw error
     }
+  }
+
+  async function cancelDownload() {
+    if (currentDownloadId.value === null) return
+
+    const downloadId = currentDownloadId.value
+    await invoke('cancel_download', { downloadId })
+    downloadingType.value = null
+    currentDownloadId.value = null
+    downloadProgress.value = null
+    downloadProgressPercent.value = 0
   }
 
   async function deleteModel(type: ModelType) {
@@ -64,6 +89,19 @@ export const useModelDownloadStore = defineStore('modelDownload', () => {
       modelDir: settings.modelDirectory || null,
     })
     await checkModels()
+  }
+
+  function ensureSelectedWhisperModelIsInstalled() {
+    const installedWhisperModels = whisperModelTypes.filter(type => isModelInstalled(type))
+
+    if (installedWhisperModels.length === 1) {
+      settings.selectedWhisperModel = installedWhisperModels[0]
+      return
+    }
+
+    if (isModelInstalled(settings.selectedWhisperModel)) return
+
+    settings.selectedWhisperModel = installedWhisperModels[0] ?? 'whisper-base'
   }
 
   function isModelInstalled(type: ModelType): boolean {
@@ -84,9 +122,11 @@ export const useModelDownloadStore = defineStore('modelDownload', () => {
     downloadProgress,
     downloadProgressPercent,
     downloadingType,
+    currentDownloadId,
     isDownloading: computed(() => downloadingType.value !== null),
     checkModels,
     downloadModel,
+    cancelDownload,
     deleteModel,
     isModelInstalled,
   }

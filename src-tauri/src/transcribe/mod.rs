@@ -12,12 +12,13 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 
 // 子模块
 mod aligner;
 mod asr;
 mod audio;
+mod cache;
 mod error;
 mod types;
 mod vad;
@@ -128,6 +129,7 @@ fn resolve_first_model_path(paths: &[PathBuf], model_name: &str) -> Result<PathB
 #[tauri::command]
 pub fn transcribe_audio(
     window: tauri::Window,
+    app: tauri::AppHandle,
     audio_path: String,
     model_path: Option<String>,
     whisper_model: Option<String>,
@@ -163,6 +165,10 @@ pub fn transcribe_audio(
     let align_model =
         resolve_model_path(&cache_dir.join("wav2vec2-base-en.onnx"), "Aligner model")?;
     let align_vocab = resolve_model_path(&cache_dir.join("wav2vec2-vocab.json"), "Aligner vocab")?;
+    let app_cache_dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|error| format!("Failed to resolve app cache dir: {}", error))?;
 
     log::info!(
         "Starting transcription: audio={}, whisper={}, vad={}, align={}",
@@ -179,6 +185,113 @@ pub fn transcribe_audio(
 
     std::thread::spawn(move || {
         let progress_audio_path = audio_path_clone.clone();
+        let source_path = PathBuf::from(&audio_path_clone);
+        let whisper_identity = match cache::model_identity(&whisper_model) {
+            Ok(identity) => identity,
+            Err(error) => {
+                emit_transcribe_error(
+                    &window_clone,
+                    resolved_job_id,
+                    &audio_path_clone,
+                    format!("Failed to inspect Whisper model for cache: {}", error),
+                );
+                return;
+            }
+        };
+        let vad_identity = match cache::model_identity(&vad_model) {
+            Ok(identity) => identity,
+            Err(error) => {
+                emit_transcribe_error(
+                    &window_clone,
+                    resolved_job_id,
+                    &audio_path_clone,
+                    format!("Failed to inspect VAD model for cache: {}", error),
+                );
+                return;
+            }
+        };
+        let align_identity = match cache::model_identity(&align_model) {
+            Ok(identity) => identity,
+            Err(error) => {
+                emit_transcribe_error(
+                    &window_clone,
+                    resolved_job_id,
+                    &audio_path_clone,
+                    format!("Failed to inspect alignment model for cache: {}", error),
+                );
+                return;
+            }
+        };
+        let vocab_identity = match cache::model_identity(&align_vocab) {
+            Ok(identity) => identity,
+            Err(error) => {
+                emit_transcribe_error(
+                    &window_clone,
+                    resolved_job_id,
+                    &audio_path_clone,
+                    format!("Failed to inspect alignment vocab for cache: {}", error),
+                );
+                return;
+            }
+        };
+        let source_hash = match cache::sha256_file(&source_path) {
+            Ok(hash) => hash,
+            Err(error) => {
+                emit_transcribe_error(
+                    &window_clone,
+                    resolved_job_id,
+                    &audio_path_clone,
+                    format!("Failed to hash input file for cache: {}", error),
+                );
+                return;
+            }
+        };
+        let cache_key = cache::cache_key(
+            &source_hash,
+            &whisper_identity,
+            &vad_identity,
+            &align_identity,
+            &vocab_identity,
+        );
+        let cache_paths = cache::cache_paths(&app_cache_dir, &cache_key);
+
+        if cache_paths.subtitles_srt.exists() {
+            match cache::read_cached_segments(&cache_paths.subtitles_srt) {
+                Ok(segments) => {
+                    log::info!(
+                        "Using cached transcription: audio={}, cache={}",
+                        audio_path_clone,
+                        cache_paths.entry_dir.display()
+                    );
+                    let _ = window_clone.emit(
+                        "transcribe-progress",
+                        TranscribeProgressEvent {
+                            job_id: resolved_job_id,
+                            audio_path: audio_path_clone.clone(),
+                            percent: 100.0,
+                            sentence: "Loading cached subtitles".to_string(),
+                            done: false,
+                        },
+                    );
+                    let _ = window_clone.emit(
+                        "transcribe-done",
+                        TranscribeDoneEvent {
+                            job_id: resolved_job_id,
+                            audio_path: audio_path_clone.clone(),
+                            segments,
+                        },
+                    );
+                    return;
+                }
+                Err(error) => {
+                    log::warn!(
+                        "Ignoring invalid cached subtitles at {}: {}",
+                        cache_paths.subtitles_srt.display(),
+                        error
+                    );
+                }
+            }
+        }
 
         let pipeline =
             SubtitlePipeline::with_config(whisper_model, vad_model, align_model, align_vocab);
@@ -230,6 +343,30 @@ pub fn transcribe_audio(
                     Err(e) => eprintln!("Failed to create SRT file: {}", e),
                 }
 
+                let metadata = cache::TranscriptionCacheMetadata {
+                    schema_version: cache::CACHE_SCHEMA_VERSION,
+                    source_name: cache::source_name(source),
+                    source_size: cache::source_size(source).unwrap_or(0),
+                    source_hash,
+                    whisper_model: whisper_identity,
+                    vad_model: vad_identity,
+                    align_model: align_identity,
+                    align_vocab: vocab_identity,
+                    created_at_unix_secs: cache::unix_now_secs(),
+                };
+                if let Err(error) = cache::write_cache_entry(
+                    &cache_paths,
+                    &result.audio,
+                    &result.subtitles,
+                    &metadata,
+                ) {
+                    log::warn!(
+                        "Failed to write transcription cache at {}: {}",
+                        cache_paths.entry_dir.display(),
+                        error
+                    );
+                }
+
                 eprintln!(
                     "Transcription complete: {} segments, saved to {}",
                     segments.len(),
@@ -260,6 +397,35 @@ pub fn transcribe_audio(
     });
 
     Ok(resolved_job_id)
+}
+
+#[tauri::command]
+pub fn get_transcription_cache_dir(app: tauri::AppHandle) -> Result<String, String> {
+    let app_cache_dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|error| format!("Failed to resolve app cache dir: {}", error))?;
+    let cache_dir = app_cache_dir.join("transcripts");
+    std::fs::create_dir_all(&cache_dir)
+        .map_err(|error| format!("Failed to create transcription cache dir: {}", error))?;
+    Ok(cache_dir.display().to_string())
+}
+
+fn emit_transcribe_error(
+    window: &tauri::Window,
+    job_id: u64,
+    audio_path: &str,
+    error: String,
+) {
+    eprintln!("Transcription failed: {}", error);
+    let _ = window.emit(
+        "transcribe-error",
+        TranscribeErrorEvent {
+            job_id,
+            audio_path: audio_path.to_owned(),
+            error,
+        },
+    );
 }
 
 fn whisper_model_filename(model: &str) -> Result<&'static str, String> {

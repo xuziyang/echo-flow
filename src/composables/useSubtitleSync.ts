@@ -1,5 +1,7 @@
 import type { Sentence } from '../stores/useTranscriptStore'
 
+const SUBTITLE_SYNC_LEAD_MS = 120
+
 // Binary search for O(log n) lookup instead of O(n) linear scan
 export function getCurrentSubtitleIndex(positionMs: number, sentences: Sentence[]): number {
   let low = 0
@@ -10,9 +12,8 @@ export function getCurrentSubtitleIndex(positionMs: number, sentences: Sentence[
     const mid = (low + high) >>> 1
     const sentence = sentences[mid]
     const start = sentence.start_ms ?? 0
-    const lead = 120
 
-    if (Math.max(0, positionMs + lead) >= start) {
+    if (positionMs + SUBTITLE_SYNC_LEAD_MS >= start) {
       result = mid
       low = mid + 1
     } else {

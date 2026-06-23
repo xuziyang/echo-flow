@@ -102,9 +102,6 @@ export const useRecordingStore = defineStore('recording', () => {
         }
         const blob = new Blob([audioData], { type: 'audio/wav' })
         userAudioUrl.value = URL.createObjectURL(blob)
-
-        // Get waveform from samples
-        userWaveformSamples.value = extractWaveformFromSamples(recordingSamples.value, 640)
       }
     } catch (err) {
       app.showSubtitleToast(typeof err === 'string' ? err : String(err), 'error')

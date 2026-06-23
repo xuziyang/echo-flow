@@ -52,13 +52,6 @@ export const useRecordingStore = defineStore('recording', () => {
     activePlaybackMode.value = null
   }
 
-  function revokeUserAudioUrl() {
-    if (!userAudioUrl.value) return
-    stopPlayback()
-    URL.revokeObjectURL(userAudioUrl.value)
-    userAudioUrl.value = null
-  }
-
   async function toggleRecording() {
     if (isRecording.value) {
       await stopRecording()
@@ -103,7 +96,10 @@ export const useRecordingStore = defineStore('recording', () => {
           recordingSampleRate.value,
           recordingChannels.value,
         )
-        revokeUserAudioUrl()
+        userWaveformSamples.value = extractWaveformFromSamples(recordingSamples.value, 640)
+        if (userAudioUrl.value) {
+          URL.revokeObjectURL(userAudioUrl.value)
+        }
         const blob = new Blob([audioData], { type: 'audio/wav' })
         userAudioUrl.value = URL.createObjectURL(blob)
 

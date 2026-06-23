@@ -18,15 +18,15 @@ const itemClass = computed(() => {
   }
 
   return app.theme === 'dark'
-    ? `border-transparent opacity-50 ${props.disabled ? 'cursor-not-allowed' : 'hover:opacity-85 hover:bg-white/5 hover:shadow-sm hover:shadow-white/5'}`
-    : `border-transparent opacity-50 ${props.disabled ? 'cursor-not-allowed' : 'hover:opacity-100 hover:bg-gray-200 hover:shadow-md hover:shadow-black/5'}`
+    ? `bg-transparent border-transparent opacity-50 shadow-none ${props.disabled ? 'cursor-not-allowed' : 'hover:opacity-85 hover:bg-white/5'}`
+    : `bg-transparent border-transparent opacity-50 shadow-none ${props.disabled ? 'cursor-not-allowed' : 'hover:opacity-100 hover:bg-gray-200'}`
 })
 </script>
 
 <template>
   <div @click="!disabled && emit('click', index)"
 
-       class="p-3 rounded-lg border transition-all group flex gap-3 items-start"
+       class="p-3 rounded-lg border transition-colors duration-150 group flex gap-3 items-start"
        :class="[itemClass, disabled ? 'cursor-not-allowed' : 'cursor-pointer']"
        >
 

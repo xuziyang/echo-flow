@@ -1,6 +1,6 @@
 // src/stores/useRecordingStore.ts
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { useAppStore } from './useAppStore'
 import { usePlayerStore } from './usePlayerStore'
@@ -12,6 +12,15 @@ interface RecordingResult {
   channels: number
 }
 
+export type LoopPlaybackMode = 'original' | 'comparison'
+type UserPlaybackMode = 'recording' | 'comparison'
+
+interface UserRecordingPlaybackOptions {
+  waitForEnd?: boolean
+  stopBeforeStart?: boolean
+  allowDuringLoop?: boolean
+}
+
 export const useRecordingStore = defineStore('recording', () => {
   const app = useAppStore()
   const player = usePlayerStore()
@@ -20,20 +29,29 @@ export const useRecordingStore = defineStore('recording', () => {
   const userAudioUrl = ref<string | null>(null)
   const userWaveformSamples = ref<number[]>([])
   const recordingSamples = ref<number[]>([])
-  const activePlaybackMode = ref<'recording' | 'comparison' | null>(null)
+  const activePlaybackMode = ref<UserPlaybackMode | null>(null)
+  const loopEnabled = ref(false)
+  const activeLoopMode = ref<LoopPlaybackMode | null>(null)
   const recordingSampleRate = ref(44100)
   const recordingChannels = ref(1)
   const recordingDurationMs = ref(0)
+  const hasRecording = computed(() => Boolean(userAudioUrl.value) || recordingSamples.value.length > 0)
 
   let htmlAudio: HTMLAudioElement | null = null
   let playbackToken = 0
+  let loopToken = 0
+  let resolveActivePlayback: ((completed: boolean) => void) | null = null
   let waveformTimer: ReturnType<typeof setInterval> | null = null
   let audioContext: AudioContext | null = null
   let audioBufferSource: AudioBufferSourceNode | null = null
 
   function clearActiveAudio() {
     if (audioBufferSource) {
-      audioBufferSource.stop()
+      try {
+        audioBufferSource.stop()
+      } catch {
+        // The source may already have ended.
+      }
       audioBufferSource = null
     }
     if (audioContext) {
@@ -42,14 +60,20 @@ export const useRecordingStore = defineStore('recording', () => {
     }
     if (htmlAudio) {
       htmlAudio.pause()
+      htmlAudio.currentTime = 0
       htmlAudio = null
     }
   }
 
-  function stopPlayback() {
+  async function stopPlayback() {
     playbackToken += 1
+    loopToken += 1
+    resolveActivePlayback?.(false)
+    resolveActivePlayback = null
     clearActiveAudio()
     activePlaybackMode.value = null
+    activeLoopMode.value = null
+    await player.clearSentenceSegment({ pausePlayback: true })
   }
 
   async function toggleRecording() {
@@ -61,10 +85,13 @@ export const useRecordingStore = defineStore('recording', () => {
   }
 
   async function startRecording() {
+    if (activeLoopMode.value) {
+      await stopPlayback()
+    }
     if (activePlaybackMode.value || player.isPlaying || player.seeking) return
 
     try {
-      stopPlayback()
+      await stopPlayback()
       await player.clearSentenceSegment({ pausePlayback: true })
       await invoke('start_recording')
       userWaveformSamples.value = []
@@ -209,69 +236,253 @@ export const useRecordingStore = defineStore('recording', () => {
     return waveform.map(s => s / globalMax)
   }
 
-  function createPlaybackEndHandler(currentToken: number) {
+  function createPlaybackEndHandler(currentToken: number, onEnd?: (completed: boolean) => void) {
     return () => {
       if (currentToken !== playbackToken) return
       clearActiveAudio()
       activePlaybackMode.value = null
+      onEnd?.(true)
     }
   }
 
-  async function playUserRecording(mode: 'recording' | 'comparison' = 'recording') {
-    if (!userAudioUrl.value && recordingSamples.value.length === 0) return
-    if (isRecording.value || player.isPlaying || player.seeking) return
+  async function startUserRecordingPlayback(
+    mode: UserPlaybackMode = 'recording',
+    {
+      waitForEnd = false,
+      stopBeforeStart = true,
+      allowDuringLoop = false,
+    }: UserRecordingPlaybackOptions = {},
+  ): Promise<boolean> {
+    if (!hasRecording.value) return false
+    if (
+      isRecording.value
+      || player.isPlaying
+      || player.seeking
+      || (!allowDuringLoop && activeLoopMode.value)
+    ) {
+      return false
+    }
 
-    stopPlayback()
+    if (stopBeforeStart) {
+      await stopPlayback()
+    } else {
+      playbackToken += 1
+      clearActiveAudio()
+      activePlaybackMode.value = null
+    }
+
     await player.clearSentenceSegment({ pausePlayback: true })
     playbackToken += 1
     const currentToken = playbackToken
     activePlaybackMode.value = mode
 
-    try {
-      if (recordingSamples.value.length > 0) {
-        audioContext = new AudioContext()
-        const audioBuffer = audioContext.createBuffer(
-          1,
-          recordingSamples.value.length,
-          recordingSampleRate.value
-        )
-        const channelData = new Float32Array(recordingSamples.value)
-        audioBuffer.copyToChannel(channelData, 0)
-
-        audioBufferSource = audioContext.createBufferSource()
-        audioBufferSource.buffer = audioBuffer
-        audioBufferSource.connect(audioContext.destination)
-        audioBufferSource.onended = createPlaybackEndHandler(currentToken)
-        audioBufferSource.start()
-      } else {
-        const audio = new Audio(userAudioUrl.value!)
-        htmlAudio = audio
-        audio.onended = createPlaybackEndHandler(currentToken)
-        audio.onerror = () => {
-          createPlaybackEndHandler(currentToken)()
-          app.showSubtitleToast('录音播放失败', 'error')
+    return await new Promise<boolean>((resolve) => {
+      let settled = false
+      const finish = (completed: boolean) => {
+        if (settled) return
+        settled = true
+        if (resolveActivePlayback === finish) {
+          resolveActivePlayback = null
         }
-        await audio.play()
+        resolve(completed)
       }
-    } catch (error) {
-      clearActiveAudio()
-      activePlaybackMode.value = null
-      app.showSubtitleToast(typeof error === 'string' ? error : String(error), 'error')
+      resolveActivePlayback = finish
+
+      try {
+        if (recordingSamples.value.length > 0) {
+          audioContext = new AudioContext()
+          const audioBuffer = audioContext.createBuffer(
+            1,
+            recordingSamples.value.length,
+            recordingSampleRate.value,
+          )
+          const channelData = new Float32Array(recordingSamples.value)
+          audioBuffer.copyToChannel(channelData, 0)
+
+          audioBufferSource = audioContext.createBufferSource()
+          audioBufferSource.buffer = audioBuffer
+          audioBufferSource.connect(audioContext.destination)
+          audioBufferSource.onended = createPlaybackEndHandler(currentToken, finish)
+          audioBufferSource.start()
+        } else {
+          const audio = new Audio(userAudioUrl.value!)
+          htmlAudio = audio
+          audio.onended = createPlaybackEndHandler(currentToken, finish)
+          audio.onerror = () => {
+            createPlaybackEndHandler(currentToken, finish)()
+            app.showSubtitleToast('录音播放失败', 'error')
+          }
+          void audio.play().then(() => {
+            if (!waitForEnd) finish(true)
+          }).catch((error) => {
+            clearActiveAudio()
+            activePlaybackMode.value = null
+            app.showSubtitleToast(typeof error === 'string' ? error : String(error), 'error')
+            finish(false)
+          })
+        }
+        if (!waitForEnd && recordingSamples.value.length > 0) finish(true)
+      } catch (error) {
+        clearActiveAudio()
+        activePlaybackMode.value = null
+        app.showSubtitleToast(typeof error === 'string' ? error : String(error), 'error')
+        finish(false)
+      }
+    })
+  }
+
+  async function playUserRecording(mode: UserPlaybackMode = 'recording') {
+    await startUserRecordingPlayback(mode)
+  }
+
+  function getCurrentSentenceTiming() {
+    const sentence = transcript.sentences[player.currentIndex]
+    return {
+      startMs: sentence?.start_ms,
+      endMs: sentence?.end_ms,
     }
   }
 
-  async function playComparison() {
-    if (recordingSamples.value.length === 0 && !userAudioUrl.value) return
-    if (isRecording.value || activePlaybackMode.value || player.isPlaying || player.seeking) return
+  async function playOriginalOnce(showMissingTimestampToast = true): Promise<boolean> {
+    if (isRecording.value || activePlaybackMode.value || activeLoopMode.value || player.isPlaying || player.seeking) {
+      return false
+    }
 
-    const sentence = transcript.sentences[player.currentIndex]
-    const startedOriginal = await player.playSentenceSegment(sentence?.start_ms, sentence?.end_ms)
+    const { startMs, endMs } = getCurrentSentenceTiming()
+    const startedOriginal = await player.playSentenceSegment(startMs, endMs)
+    if (!startedOriginal && showMissingTimestampToast) {
+      app.showSubtitleToast('当前句缺少时间戳，无法播放原音', 'error')
+      return false
+    }
+
+    return startedOriginal
+  }
+
+  async function playComparisonOnce(options?: { waitForRecordingEnd?: boolean, allowDuringLoop?: boolean }) {
+    if (!hasRecording.value) {
+      app.showSubtitleToast('请先完成录音，再播放对比', 'error')
+      return false
+    }
+    if (
+      isRecording.value
+      || activePlaybackMode.value
+      || (!options?.allowDuringLoop && activeLoopMode.value)
+      || player.isPlaying
+      || player.seeking
+    ) {
+      return false
+    }
+
+    const { startMs, endMs } = getCurrentSentenceTiming()
+    const startedOriginal = await player.playSentenceSegment(startMs, endMs)
     if (!startedOriginal) {
       app.showSubtitleToast('当前句缺少时间戳，无法播放原音对比', 'error')
+      return false
+    }
+
+    return await startUserRecordingPlayback('comparison', {
+      waitForEnd: options?.waitForRecordingEnd,
+      stopBeforeStart: false,
+      allowDuringLoop: options?.allowDuringLoop,
+    })
+  }
+
+  async function playOriginal() {
+    if (loopEnabled.value) {
+      await toggleOriginalLoop()
       return
     }
 
-    await playUserRecording('comparison')
+    await playOriginalOnce()
+  }
+
+  async function playComparison() {
+    if (loopEnabled.value) {
+      await toggleComparisonLoop()
+      return
+    }
+
+    await playComparisonOnce()
+  }
+
+  function setLoopEnabled(enabled: boolean) {
+    if (loopEnabled.value === enabled) return
+    loopEnabled.value = enabled
+    if (!enabled && activeLoopMode.value) {
+      void stopPlayback()
+    }
+  }
+
+  function toggleLoopEnabled() {
+    setLoopEnabled(!loopEnabled.value)
+  }
+
+  async function toggleOriginalLoop() {
+    if (activeLoopMode.value === 'original') {
+      await stopPlayback()
+      return
+    }
+    if (activeLoopMode.value) {
+      await stopPlayback()
+    }
+    if (isRecording.value || activePlaybackMode.value || player.isPlaying || player.seeking) return
+
+    const { startMs, endMs } = getCurrentSentenceTiming()
+    if (!player.canPlaySentenceSegment(startMs, endMs)) {
+      app.showSubtitleToast('当前句缺少时间戳，无法循环播放原音', 'error')
+      return
+    }
+
+    activeLoopMode.value = 'original'
+    const currentLoopToken = ++loopToken
+
+    while (activeLoopMode.value === 'original' && currentLoopToken === loopToken) {
+      const { startMs: currentStartMs, endMs: currentEndMs } = getCurrentSentenceTiming()
+      const completed = await player.playSentenceSegment(currentStartMs, currentEndMs)
+      if (activeLoopMode.value !== 'original' || currentLoopToken !== loopToken) break
+      if (!completed) {
+        app.showSubtitleToast('当前句缺少时间戳，无法循环播放原音', 'error')
+        await stopPlayback()
+        break
+      }
+    }
+  }
+
+  async function toggleComparisonLoop() {
+    if (activeLoopMode.value === 'comparison') {
+      await stopPlayback()
+      return
+    }
+    if (activeLoopMode.value) {
+      await stopPlayback()
+    }
+    if (isRecording.value || activePlaybackMode.value || player.isPlaying || player.seeking) return
+
+    if (!hasRecording.value) {
+      app.showSubtitleToast('请先完成录音，再循环播放对比', 'error')
+      return
+    }
+
+    const { startMs, endMs } = getCurrentSentenceTiming()
+    if (!player.canPlaySentenceSegment(startMs, endMs)) {
+      app.showSubtitleToast('当前句缺少时间戳，无法循环播放对比', 'error')
+      return
+    }
+
+    activeLoopMode.value = 'comparison'
+    const currentLoopToken = ++loopToken
+
+    while (activeLoopMode.value === 'comparison' && currentLoopToken === loopToken) {
+      const completed = await playComparisonOnce({
+        waitForRecordingEnd: true,
+        allowDuringLoop: true,
+      })
+      if (activeLoopMode.value !== 'comparison' || currentLoopToken !== loopToken) break
+      if (!completed) {
+        await stopPlayback()
+        break
+      }
+    }
   }
 
   async function saveRecording(path: string) {
@@ -293,10 +504,18 @@ export const useRecordingStore = defineStore('recording', () => {
     userAudioUrl,
     userWaveformSamples,
     recordingDurationMs,
+    hasRecording,
     activePlaybackMode,
+    loopEnabled,
+    activeLoopMode,
+    setLoopEnabled,
+    toggleLoopEnabled,
     toggleRecording,
+    playOriginal,
     playUserRecording,
     playComparison,
+    toggleOriginalLoop,
+    toggleComparisonLoop,
     saveRecording,
     stopPlayback,
   }

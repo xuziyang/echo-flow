@@ -17,6 +17,7 @@ const isBusy = computed(() => (
   || player.seeking
   || recording.isRecording
   || Boolean(recording.activePlaybackMode)
+  || Boolean(recording.activeLoopMode)
 ))
 
 function playCurrentSentence() {
@@ -43,11 +44,12 @@ function onKeydown(e: KeyboardEvent) {
       break
     case 'Space':
       e.preventDefault()
+      if (recording.activeLoopMode === 'original') {
+        void recording.playOriginal()
+        return
+      }
       if (isBusy.value) return
-      void player.playSentenceSegment(
-        transcript.sentences[player.currentIndex]?.start_ms,
-        transcript.sentences[player.currentIndex]?.end_ms,
-      )
+      void recording.playOriginal()
       break
     case 'KeyR':
       e.preventDefault()
@@ -55,10 +57,18 @@ function onKeydown(e: KeyboardEvent) {
       void recording.toggleRecording()
       break
     case 'KeyC':
+      if (recording.activeLoopMode === 'comparison') {
+        void recording.playComparison()
+        return
+      }
       if (isBusy.value) return
       void recording.playComparison()
       break
     case 'Escape':
+      if (recording.activeLoopMode) {
+        void recording.stopPlayback()
+        return
+      }
       app.switchMode('listening')
       break
   }
@@ -70,6 +80,10 @@ onMounted(() => {
 })
 
 watch(() => player.currentIndex, () => {
+  if (recording.activeLoopMode) {
+    void recording.stopPlayback()
+    return
+  }
   playCurrentSentence()
 })
 

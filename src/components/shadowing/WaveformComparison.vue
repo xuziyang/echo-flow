@@ -63,7 +63,7 @@ const actionButtonClass = (enabled: boolean) => {
         class="h-10 px-4 text-sm font-medium rounded-xl border flex items-center gap-2 transition-all duration-200"
         :class="actionButtonClass(canPlayOriginal)"
         :disabled="!canPlayOriginal"
-        title="Enter — Play current sentence">
+        title="Space — Play current sentence">
         <Icon name="play" :size="15" />
         Original
       </button>
@@ -82,18 +82,18 @@ const actionButtonClass = (enabled: boolean) => {
                     : (app.theme === 'dark'
                        ? 'bg-sky-500 text-white shadow-sky-500/25 hover:bg-sky-400 hover:scale-110'
                        : 'bg-sky-500 text-white shadow-sky-500/20 hover:bg-sky-600 hover:scale-110')))"
-              title="Space — Start/stop recording">
+              title="R — Start/stop recording">
         <Icon :name="recording.isRecording ? 'stop' : 'microphone'" />
       </button>
 
-      <!-- Play Recording -->
+      <!-- Replay Recording -->
       <button @click="void recording.playUserRecording()"
               class="h-10 px-4 text-sm font-medium rounded-xl border flex items-center gap-2 transition-all duration-200"
               :class="actionButtonClass(canPlayRecording)"
               :disabled="!canPlayRecording"
-              title="R — Play your latest recording">
+              title="Play your latest recording">
         <Icon name="play" :size="15" />
-        Recording
+        Replay
       </button>
 
       <!-- Contrast -->

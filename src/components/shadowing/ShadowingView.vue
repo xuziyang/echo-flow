@@ -41,7 +41,7 @@ function onKeydown(e: KeyboardEvent) {
       if (isBusy.value) return
       player.nextSentence(transcript.sentences.length - 1)
       break
-    case 'Enter':
+    case 'Space':
       e.preventDefault()
       if (isBusy.value) return
       void player.playSentenceSegment(
@@ -49,14 +49,10 @@ function onKeydown(e: KeyboardEvent) {
         transcript.sentences[player.currentIndex]?.end_ms,
       )
       break
-    case 'Space':
+    case 'KeyR':
       e.preventDefault()
       if (isBusy.value && !recording.isRecording) return
       void recording.toggleRecording()
-      break
-    case 'KeyR':
-      if (isBusy.value) return
-      void recording.playUserRecording()
       break
     case 'KeyC':
       if (isBusy.value) return

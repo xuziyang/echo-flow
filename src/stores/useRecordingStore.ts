@@ -31,6 +31,7 @@ export const useRecordingStore = defineStore('recording', () => {
   const recordingSamples = ref<number[]>([])
   const activePlaybackMode = ref<UserPlaybackMode | null>(null)
   const loopEnabled = ref(false)
+  const autoRecordEnabled = ref(false)
   const activeLoopMode = ref<LoopPlaybackMode | null>(null)
   const recordingSampleRate = ref(44100)
   const recordingChannels = ref(1)
@@ -393,7 +394,10 @@ export const useRecordingStore = defineStore('recording', () => {
       return
     }
 
-    await playOriginalOnce()
+    const completed = await playOriginalOnce()
+    if (completed && autoRecordEnabled.value) {
+      await startRecording()
+    }
   }
 
   async function playComparison() {
@@ -415,6 +419,14 @@ export const useRecordingStore = defineStore('recording', () => {
 
   function toggleLoopEnabled() {
     setLoopEnabled(!loopEnabled.value)
+  }
+
+  function setAutoRecordEnabled(enabled: boolean) {
+    autoRecordEnabled.value = enabled
+  }
+
+  function toggleAutoRecordEnabled() {
+    setAutoRecordEnabled(!autoRecordEnabled.value)
   }
 
   async function toggleOriginalLoop() {
@@ -507,9 +519,12 @@ export const useRecordingStore = defineStore('recording', () => {
     hasRecording,
     activePlaybackMode,
     loopEnabled,
+    autoRecordEnabled,
     activeLoopMode,
     setLoopEnabled,
     toggleLoopEnabled,
+    setAutoRecordEnabled,
+    toggleAutoRecordEnabled,
     toggleRecording,
     playOriginal,
     playUserRecording,

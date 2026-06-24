@@ -269,4 +269,58 @@ describe('useRecordingStore', () => {
     await loopPromise
     expect(player.playSentenceSegment).toHaveBeenCalledTimes(1)
   })
+
+  it('starts recording after one-shot original playback when auto record is enabled', async () => {
+    seedCurrentSentence()
+    invokeMock.mockResolvedValue(undefined)
+
+    const player = usePlayerStore()
+    player.clearSentenceSegment = vi.fn().mockResolvedValue(undefined)
+    player.playSentenceSegment = vi.fn().mockResolvedValue(true)
+
+    const recording = useRecordingStore()
+    recording.setAutoRecordEnabled(true)
+
+    await recording.playOriginal()
+
+    expect(player.playSentenceSegment).toHaveBeenCalledWith(500, 1500)
+    expect(invokeMock).toHaveBeenCalledWith('start_recording')
+    expect(recording.isRecording).toBe(true)
+  })
+
+  it('does not auto record when original playback cannot start', async () => {
+    const player = usePlayerStore()
+    player.clearSentenceSegment = vi.fn().mockResolvedValue(undefined)
+    player.playSentenceSegment = vi.fn().mockResolvedValue(false)
+
+    const recording = useRecordingStore()
+    recording.setAutoRecordEnabled(true)
+
+    await recording.playOriginal()
+
+    expect(invokeMock).not.toHaveBeenCalledWith('start_recording')
+    expect(recording.isRecording).toBe(false)
+  })
+
+  it('keeps loop playback behavior when loop and auto record are both enabled', async () => {
+    seedCurrentSentence()
+    const player = usePlayerStore()
+    player.clearSentenceSegment = vi.fn().mockResolvedValue(undefined)
+    const firstPlayback = deferred<boolean>()
+    player.playSentenceSegment = vi.fn().mockReturnValue(firstPlayback.promise)
+
+    const recording = useRecordingStore()
+    recording.setAutoRecordEnabled(true)
+    recording.setLoopEnabled(true)
+
+    const loopPromise = recording.playOriginal()
+    await flushPromises()
+
+    expect(recording.activeLoopMode).toBe('original')
+    expect(invokeMock).not.toHaveBeenCalledWith('start_recording')
+
+    await recording.playOriginal()
+    firstPlayback.resolve(true)
+    await loopPromise
+  })
 })

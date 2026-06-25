@@ -23,14 +23,14 @@ const files = useFilesStore()
       </button>
     </div>
     <div class="flex-1 overflow-y-auto no-scrollbar p-2 space-y-1">
-      <div v-for="file in files.files" :key="file.id"
-           @click="app.currentTitle = file.title"
+      <div v-for="file in files.files" :key="file.path"
+           @click="files.openRecentFile(file)"
            class="p-3 rounded-lg border cursor-pointer transition-all group relative"
-           :class="app.currentTitle === file.title ?
+           :class="files.currentFile?.path === file.path ?
               (app.theme === 'dark' ? 'bg-white/5 border-brand-500/30 shadow-sm' : 'bg-white border-brand-300 shadow-sm') :
               (app.theme === 'dark' ? 'border-transparent hover:bg-white/5' : 'hover:bg-white hover:shadow-sm border-transparent')">
         <h3 class="text-xs font-bold leading-snug mb-1"
-            :class="app.currentTitle === file.title
+            :class="files.currentFile?.path === file.path
                ? (app.theme === 'dark' ? 'text-brand-400' : 'text-brand-700')
                : (app.theme === 'dark' ? 'text-gray-300' : 'text-slate-700')">
           {{ file.title }}

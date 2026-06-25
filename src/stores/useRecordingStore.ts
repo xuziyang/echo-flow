@@ -1,6 +1,6 @@
 // src/stores/useRecordingStore.ts
 import { defineStore } from 'pinia'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { useAppStore } from './useAppStore'
 import { usePlayerStore } from './usePlayerStore'
@@ -10,6 +10,15 @@ interface RecordingResult {
   samples: number[]
   sample_rate: number
   channels: number
+}
+
+interface StoredRecording {
+  audioUrl: string
+  samples: number[]
+  waveformSamples: number[]
+  sampleRate: number
+  channels: number
+  durationMs: number
 }
 
 export type LoopPlaybackMode = 'original' | 'comparison'
@@ -29,6 +38,7 @@ export const useRecordingStore = defineStore('recording', () => {
   const userAudioUrl = ref<string | null>(null)
   const userWaveformSamples = ref<number[]>([])
   const recordingSamples = ref<number[]>([])
+  const recordingsBySentence = ref<Record<string, StoredRecording>>({})
   const activePlaybackMode = ref<UserPlaybackMode | null>(null)
   const loopEnabled = ref(false)
   const autoRecordEnabled = ref(false)
@@ -36,7 +46,7 @@ export const useRecordingStore = defineStore('recording', () => {
   const recordingSampleRate = ref(44100)
   const recordingChannels = ref(1)
   const recordingDurationMs = ref(0)
-  const hasRecording = computed(() => Boolean(userAudioUrl.value) || recordingSamples.value.length > 0)
+  const hasRecording = computed(() => Boolean(getCurrentSentenceRecording()) || Boolean(userAudioUrl.value) || recordingSamples.value.length > 0)
 
   let htmlAudio: HTMLAudioElement | null = null
   let playbackToken = 0
@@ -45,6 +55,8 @@ export const useRecordingStore = defineStore('recording', () => {
   let waveformTimer: ReturnType<typeof setInterval> | null = null
   let audioContext: AudioContext | null = null
   let audioBufferSource: AudioBufferSourceNode | null = null
+  let recordingSentenceIndex = 0
+  let recordingCacheDirectory: string | null = null
 
   function clearActiveAudio() {
     if (audioBufferSource) {
@@ -95,6 +107,7 @@ export const useRecordingStore = defineStore('recording', () => {
       await stopPlayback()
       await player.clearSentenceSegment({ pausePlayback: true })
       await invoke('start_recording')
+      recordingSentenceIndex = player.currentIndex
       userWaveformSamples.value = []
       startWaveformPolling()
       isRecording.value = true
@@ -119,17 +132,8 @@ export const useRecordingStore = defineStore('recording', () => {
 
       // Convert samples to audio URL for playback
       if (recordingSamples.value.length > 0) {
-        const audioData = createWavFromSamples(
-          recordingSamples.value,
-          recordingSampleRate.value,
-          recordingChannels.value,
-        )
-        userWaveformSamples.value = extractWaveformFromSamples(recordingSamples.value, 640)
-        if (userAudioUrl.value) {
-          URL.revokeObjectURL(userAudioUrl.value)
-        }
-        const blob = new Blob([audioData], { type: 'audio/wav' })
-        userAudioUrl.value = URL.createObjectURL(blob)
+        storeSentenceRecording(recordingSentenceIndex)
+        await saveCurrentSentenceRecording(recordingSentenceIndex)
       }
     } catch (err) {
       app.showSubtitleToast(typeof err === 'string' ? err : String(err), 'error')
@@ -237,6 +241,134 @@ export const useRecordingStore = defineStore('recording', () => {
     return waveform.map(s => s / globalMax)
   }
 
+  function getSentenceRecordingKey(sentenceIndex: number) {
+    const sentence = transcript.sentences[sentenceIndex]
+    const sentenceId = sentence?.id ?? 'no-id'
+    return `${player.currentPath || 'no-audio'}::${sentenceIndex}::${sentenceId}`
+  }
+
+  function getCurrentSentenceRecording() {
+    return recordingsBySentence.value[getSentenceRecordingKey(player.currentIndex)] ?? null
+  }
+
+  function applyStoredRecording(recording: StoredRecording | null) {
+    if (!recording) {
+      userAudioUrl.value = null
+      userWaveformSamples.value = []
+      recordingSamples.value = []
+      recordingSampleRate.value = 44100
+      recordingChannels.value = 1
+      recordingDurationMs.value = 0
+      return
+    }
+
+    userAudioUrl.value = recording.audioUrl
+    userWaveformSamples.value = recording.waveformSamples
+    recordingSamples.value = recording.samples
+    recordingSampleRate.value = recording.sampleRate
+    recordingChannels.value = recording.channels
+    recordingDurationMs.value = recording.durationMs
+  }
+
+  function syncCurrentSentenceRecording() {
+    applyStoredRecording(getCurrentSentenceRecording())
+  }
+
+  function storeSentenceRecording(sentenceIndex: number) {
+    const key = getSentenceRecordingKey(sentenceIndex)
+    const previousRecording = recordingsBySentence.value[key]
+    if (previousRecording?.audioUrl) {
+      URL.revokeObjectURL(previousRecording.audioUrl)
+    }
+
+    const samples = [...recordingSamples.value]
+    const sampleRate = recordingSampleRate.value
+    const channels = recordingChannels.value
+    const waveformSamples = extractWaveformFromSamples(samples, 640)
+    const audioData = createWavFromSamples(samples, sampleRate, channels)
+    const blob = new Blob([audioData], { type: 'audio/wav' })
+    const audioUrl = URL.createObjectURL(blob)
+    const durationMs = sampleRate > 0
+      ? Math.round((samples.length / sampleRate / channels) * 1000)
+      : 0
+
+    recordingsBySentence.value = {
+      ...recordingsBySentence.value,
+      [key]: {
+        audioUrl,
+        samples,
+        waveformSamples,
+        sampleRate,
+        channels,
+        durationMs,
+      },
+    }
+
+    if (sentenceIndex === player.currentIndex) {
+      applyStoredRecording(recordingsBySentence.value[key])
+    }
+  }
+
+  function sanitizePathSegment(segment: string) {
+    const sanitized = segment
+      .trim()
+      .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '-')
+      .replace(/\s+/g, ' ')
+      .replace(/^\.+$/, '')
+      .slice(0, 80)
+
+    return sanitized || 'audio'
+  }
+
+  function getPathStem(path: string) {
+    const fileName = path.split(/[\\/]/).pop() || 'audio'
+    const dotIndex = fileName.lastIndexOf('.')
+    return sanitizePathSegment(dotIndex > 0 ? fileName.slice(0, dotIndex) : fileName)
+  }
+
+  async function getRecordingCacheDirectory() {
+    if (recordingCacheDirectory) return recordingCacheDirectory
+    recordingCacheDirectory = await invoke<string>('get_recording_cache_dir')
+    return recordingCacheDirectory
+  }
+
+  function joinPath(...segments: string[]) {
+    return segments
+      .map((segment, index) => {
+        if (index === 0) return segment.replace(/[\\/]+$/g, '')
+        return segment.replace(/^[\\/]+|[\\/]+$/g, '')
+      })
+      .filter(Boolean)
+      .join('/')
+  }
+
+  async function getSentenceRecordingPath(sentenceIndex: number) {
+    const audioPath = player.currentPath
+    if (!audioPath) return null
+
+    const audioStem = getPathStem(audioPath)
+    const baseDirectory = joinPath(await getRecordingCacheDirectory(), audioStem)
+
+    const sentence = transcript.sentences[sentenceIndex]
+    const sentenceNumber = String(sentenceIndex + 1).padStart(3, '0')
+    const sentenceId = sentence?.id ? `-${sentence.id}` : ''
+
+    return joinPath(baseDirectory, `sentence-${sentenceNumber}${sentenceId}.wav`)
+  }
+
+  async function saveCurrentSentenceRecording(sentenceIndex: number) {
+    const path = await getSentenceRecordingPath(sentenceIndex)
+    if (!path) return
+
+    try {
+      await saveRecording(path)
+      const fileName = path.split(/[\\/]/).pop() || 'recording.wav'
+      app.showSubtitleToast(`录音已保存：${fileName}`)
+    } catch (error) {
+      app.showSubtitleToast(typeof error === 'string' ? error : String(error), 'error')
+    }
+  }
+
   function createPlaybackEndHandler(currentToken: number, onEnd?: (completed: boolean) => void) {
     return () => {
       if (currentToken !== playbackToken) return
@@ -254,7 +386,12 @@ export const useRecordingStore = defineStore('recording', () => {
       allowDuringLoop = false,
     }: UserRecordingPlaybackOptions = {},
   ): Promise<boolean> {
-    if (!hasRecording.value) return false
+    const sentenceRecording = getCurrentSentenceRecording()
+    const samples = sentenceRecording?.samples ?? recordingSamples.value
+    const sampleRate = sentenceRecording?.sampleRate ?? recordingSampleRate.value
+    const audioUrl = sentenceRecording?.audioUrl ?? userAudioUrl.value
+
+    if (!sentenceRecording && !audioUrl && samples.length === 0) return false
     if (
       isRecording.value
       || player.isPlaying
@@ -290,14 +427,14 @@ export const useRecordingStore = defineStore('recording', () => {
       resolveActivePlayback = finish
 
       try {
-        if (recordingSamples.value.length > 0) {
+        if (samples.length > 0) {
           audioContext = new AudioContext()
           const audioBuffer = audioContext.createBuffer(
             1,
-            recordingSamples.value.length,
-            recordingSampleRate.value,
+            samples.length,
+            sampleRate,
           )
-          const channelData = new Float32Array(recordingSamples.value)
+          const channelData = new Float32Array(samples)
           audioBuffer.copyToChannel(channelData, 0)
 
           audioBufferSource = audioContext.createBufferSource()
@@ -306,7 +443,7 @@ export const useRecordingStore = defineStore('recording', () => {
           audioBufferSource.onended = createPlaybackEndHandler(currentToken, finish)
           audioBufferSource.start()
         } else {
-          const audio = new Audio(userAudioUrl.value!)
+          const audio = new Audio(audioUrl!)
           htmlAudio = audio
           audio.onended = createPlaybackEndHandler(currentToken, finish)
           audio.onerror = () => {
@@ -322,7 +459,7 @@ export const useRecordingStore = defineStore('recording', () => {
             finish(false)
           })
         }
-        if (!waitForEnd && recordingSamples.value.length > 0) finish(true)
+        if (!waitForEnd && samples.length > 0) finish(true)
       } catch (error) {
         clearActiveAudio()
         activePlaybackMode.value = null
@@ -499,17 +636,21 @@ export const useRecordingStore = defineStore('recording', () => {
 
   async function saveRecording(path: string) {
     if (recordingSamples.value.length === 0) return
-    try {
-      await invoke('save_recording', {
-        path,
-        samples: recordingSamples.value,
-        sampleRate: recordingSampleRate.value,
-        channels: recordingChannels.value,
-      })
-    } catch (error) {
-      app.showSubtitleToast(typeof error === 'string' ? error : String(error), 'error')
-    }
+    await invoke('save_recording', {
+      path,
+      samples: recordingSamples.value,
+      sampleRate: recordingSampleRate.value,
+      channels: recordingChannels.value,
+    })
   }
+
+  watch(
+    () => [player.currentPath, player.currentIndex] as const,
+    () => {
+      if (isRecording.value) return
+      syncCurrentSentenceRecording()
+    },
+  )
 
   return {
     isRecording,

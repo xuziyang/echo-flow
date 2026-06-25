@@ -400,6 +400,17 @@ pub fn transcribe_audio(
 }
 
 #[tauri::command]
+pub fn get_app_cache_dir(app: tauri::AppHandle) -> Result<String, String> {
+    let app_cache_dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|error| format!("Failed to resolve app cache dir: {}", error))?;
+    std::fs::create_dir_all(&app_cache_dir)
+        .map_err(|error| format!("Failed to create app cache dir: {}", error))?;
+    Ok(app_cache_dir.display().to_string())
+}
+
+#[tauri::command]
 pub fn get_transcription_cache_dir(app: tauri::AppHandle) -> Result<String, String> {
     let app_cache_dir = app
         .path()
@@ -408,6 +419,18 @@ pub fn get_transcription_cache_dir(app: tauri::AppHandle) -> Result<String, Stri
     let cache_dir = app_cache_dir.join("transcripts");
     std::fs::create_dir_all(&cache_dir)
         .map_err(|error| format!("Failed to create transcription cache dir: {}", error))?;
+    Ok(cache_dir.display().to_string())
+}
+
+#[tauri::command]
+pub fn get_recording_cache_dir(app: tauri::AppHandle) -> Result<String, String> {
+    let app_cache_dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|error| format!("Failed to resolve app cache dir: {}", error))?;
+    let cache_dir = app_cache_dir.join("recordings");
+    std::fs::create_dir_all(&cache_dir)
+        .map_err(|error| format!("Failed to create recording cache dir: {}", error))?;
     Ok(cache_dir.display().to_string())
 }
 

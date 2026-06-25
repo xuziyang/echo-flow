@@ -836,6 +836,10 @@ pub fn save_recording(
         buffer.extend_from_slice(&(int16 as i16).to_le_bytes());
     }
 
+    if let Some(parent) = std::path::Path::new(&path).parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("无法创建录音目录: {}", e))?;
+    }
+
     let mut file = File::create(&path).map_err(|e| format!("无法创建录音文件: {}", e))?;
     file.write_all(&buffer)
         .map_err(|e| format!("写入录音文件失败: {}", e))?;

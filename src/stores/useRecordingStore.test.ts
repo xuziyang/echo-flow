@@ -66,6 +66,11 @@ describe('useRecordingStore', () => {
     invokeMock.mockReset()
     MockAudio.instances = []
     vi.stubGlobal('Audio', MockAudio)
+    let objectUrlCounter = 0
+    vi.stubGlobal('URL', Object.assign(URL, {
+      createObjectURL: vi.fn(() => `blob:recording-${++objectUrlCounter}`),
+      revokeObjectURL: vi.fn(),
+    }))
   })
 
   it('keeps only one active recording audio instance at a time', async () => {
@@ -300,6 +305,122 @@ describe('useRecordingStore', () => {
 
     expect(invokeMock).not.toHaveBeenCalledWith('start_recording')
     expect(recording.isRecording).toBe(false)
+  })
+
+  it('saves the stopped recording to the active sentence file', async () => {
+    const player = usePlayerStore()
+    player.currentPath = '/tmp/lesson audio.mp3'
+    player.currentIndex = 1
+    player.clearSentenceSegment = vi.fn().mockResolvedValue(undefined)
+
+    const transcript = useTranscriptStore()
+    transcript.sentences = [
+      {
+        id: 3,
+        en: 'first',
+        status: 'saved',
+        dirty: false,
+        issues: [],
+      },
+      {
+        id: 8,
+        en: 'second',
+        status: 'saved',
+        dirty: false,
+        issues: [],
+      },
+    ]
+
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === 'stop_recording') {
+        return {
+          samples: [0, 0.25, -0.25],
+          sample_rate: 44100,
+          channels: 1,
+        }
+      }
+      if (command === 'get_recording_cache_dir') return '/tmp/cache/recordings'
+      if (command === 'get_recording_waveform') return []
+      return undefined
+    })
+
+    const recording = useRecordingStore()
+    await recording.toggleRecording()
+    expect(recording.isRecording).toBe(true)
+
+    await recording.toggleRecording()
+
+    expect(invokeMock).toHaveBeenCalledWith('save_recording', {
+      path: '/tmp/cache/recordings/lesson audio/sentence-002-8.wav',
+      samples: [0, 0.25, -0.25],
+      sampleRate: 44100,
+      channels: 1,
+    })
+  })
+
+  it('keeps recordings independent for each sentence', async () => {
+    const player = usePlayerStore()
+    player.currentPath = '/tmp/lesson.mp3'
+    player.clearSentenceSegment = vi.fn().mockResolvedValue(undefined)
+
+    const transcript = useTranscriptStore()
+    transcript.sentences = [
+      {
+        id: 1,
+        en: 'first',
+        status: 'saved',
+        dirty: false,
+        issues: [],
+      },
+      {
+        id: 2,
+        en: 'second',
+        status: 'saved',
+        dirty: false,
+        issues: [],
+      },
+    ]
+
+    const stopResults = [
+      {
+        samples: [0, 0.2, 0.4],
+        sample_rate: 44100,
+        channels: 1,
+      },
+      {
+        samples: [0, -0.3, -0.6],
+        sample_rate: 44100,
+        channels: 1,
+      },
+    ]
+
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === 'stop_recording') return stopResults.shift()
+      if (command === 'get_recording_cache_dir') return '/tmp/cache/recordings'
+      if (command === 'get_recording_waveform') return []
+      return undefined
+    })
+
+    const recording = useRecordingStore()
+
+    player.currentIndex = 0
+    await recording.toggleRecording()
+    await recording.toggleRecording()
+    expect(recording.userAudioUrl).toBe('blob:recording-1')
+
+    player.currentIndex = 1
+    await flushPromises()
+    expect(recording.hasRecording).toBe(false)
+    expect(recording.userAudioUrl).toBe(null)
+
+    await recording.toggleRecording()
+    await recording.toggleRecording()
+    expect(recording.userAudioUrl).toBe('blob:recording-2')
+
+    player.currentIndex = 0
+    await flushPromises()
+    expect(recording.hasRecording).toBe(true)
+    expect(recording.userAudioUrl).toBe('blob:recording-1')
   })
 
   it('keeps loop playback behavior when loop and auto record are both enabled', async () => {

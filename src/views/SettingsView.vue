@@ -25,7 +25,9 @@ const app = useAppStore()
 const settings = useSettingsStore()
 const modelDownload = useModelDownloadStore()
 const activeSection = ref<SettingsSection>('general')
+const appCacheDirectory = ref('')
 const transcriptionCacheDirectory = ref('')
+const recordingCacheDirectory = ref('')
 
 const sections: Array<{
   id: SettingsSection
@@ -112,9 +114,21 @@ async function openModelFolder() {
   }
 }
 
-async function loadTranscriptionCacheDirectory() {
+async function loadCacheDirectories() {
   try {
+    appCacheDirectory.value = await invoke<string>('get_app_cache_dir')
     transcriptionCacheDirectory.value = await invoke<string>('get_transcription_cache_dir')
+    recordingCacheDirectory.value = await invoke<string>('get_recording_cache_dir')
+  } catch (error) {
+    app.showSubtitleToast(typeof error === 'string' ? error : String(error), 'error')
+  }
+}
+
+async function openAppCacheFolder() {
+  try {
+    const folder = appCacheDirectory.value || await invoke<string>('get_app_cache_dir')
+    appCacheDirectory.value = folder
+    await openPath(folder)
   } catch (error) {
     app.showSubtitleToast(typeof error === 'string' ? error : String(error), 'error')
   }
@@ -124,6 +138,16 @@ async function openTranscriptionCacheFolder() {
   try {
     const folder = transcriptionCacheDirectory.value || await invoke<string>('get_transcription_cache_dir')
     transcriptionCacheDirectory.value = folder
+    await openPath(folder)
+  } catch (error) {
+    app.showSubtitleToast(typeof error === 'string' ? error : String(error), 'error')
+  }
+}
+
+async function openRecordingCacheFolder() {
+  try {
+    const folder = recordingCacheDirectory.value || await invoke<string>('get_recording_cache_dir')
+    recordingCacheDirectory.value = folder
     await openPath(folder)
   } catch (error) {
     app.showSubtitleToast(typeof error === 'string' ? error : String(error), 'error')
@@ -140,7 +164,7 @@ watch(() => settings.modelDirectory, () => {
 
 onMounted(() => {
   void modelDownload.checkModels()
-  void loadTranscriptionCacheDirectory()
+  void loadCacheDirectories()
   window.addEventListener('keydown', onKeydown, { capture: true })
 })
 
@@ -308,6 +332,46 @@ onUnmounted(() => {
                     class="truncate text-sm font-medium"
                     :class="app.theme === 'dark' ? 'text-white' : 'text-zinc-950'"
                   >
+                    Cache Folder
+                  </h3>
+                  <p
+                    class="mt-1 truncate text-xs"
+                    :class="app.theme === 'dark' ? 'text-dark-subtext' : 'text-slate-500'"
+                  >
+                    {{ appCacheDirectory || 'Loading...' }}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border shadow-sm transition-colors"
+                  :class="app.theme === 'dark'
+                    ? 'border-gray-700 bg-dark-card text-white hover:bg-white/10'
+                    : 'border-slate-200 bg-white text-zinc-950 hover:bg-slate-50'"
+                  aria-label="Open Cache Folder"
+                  title="Open Cache Folder"
+                  @click="openAppCacheFolder()"
+                >
+                  <Icon name="folder" :size="20" />
+                </button>
+              </div>
+            </section>
+
+            <section
+              class="overflow-hidden rounded-lg border"
+              :class="app.theme === 'dark' ? 'border-dark-border bg-dark-bg/40' : 'border-light-border bg-zinc-50'"
+            >
+              <div class="flex items-center gap-4 px-5 py-5">
+                <Icon
+                  name="folder"
+                  class="flex-shrink-0"
+                  :size="24"
+                  :class="app.theme === 'dark' ? 'text-white' : 'text-zinc-950'"
+                />
+                <div class="min-w-0 flex-1">
+                  <h3
+                    class="truncate text-sm font-medium"
+                    :class="app.theme === 'dark' ? 'text-white' : 'text-zinc-950'"
+                  >
                     Subtitle Cache Folder
                   </h3>
                   <p
@@ -326,6 +390,46 @@ onUnmounted(() => {
                   aria-label="Open Subtitle Cache Folder"
                   title="Open Subtitle Cache Folder"
                   @click="openTranscriptionCacheFolder()"
+                >
+                  <Icon name="folder" :size="20" />
+                </button>
+              </div>
+            </section>
+
+            <section
+              class="overflow-hidden rounded-lg border"
+              :class="app.theme === 'dark' ? 'border-dark-border bg-dark-bg/40' : 'border-light-border bg-zinc-50'"
+            >
+              <div class="flex items-center gap-4 px-5 py-5">
+                <Icon
+                  name="microphone"
+                  class="flex-shrink-0"
+                  :size="24"
+                  :class="app.theme === 'dark' ? 'text-white' : 'text-zinc-950'"
+                />
+                <div class="min-w-0 flex-1">
+                  <h3
+                    class="truncate text-sm font-medium"
+                    :class="app.theme === 'dark' ? 'text-white' : 'text-zinc-950'"
+                  >
+                    Recording Cache Folder
+                  </h3>
+                  <p
+                    class="mt-1 truncate text-xs"
+                    :class="app.theme === 'dark' ? 'text-dark-subtext' : 'text-slate-500'"
+                  >
+                    {{ recordingCacheDirectory || 'Loading...' }}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border shadow-sm transition-colors"
+                  :class="app.theme === 'dark'
+                    ? 'border-gray-700 bg-dark-card text-white hover:bg-white/10'
+                    : 'border-slate-200 bg-white text-zinc-950 hover:bg-slate-50'"
+                  aria-label="Open Recording Cache Folder"
+                  title="Open Recording Cache Folder"
+                  @click="openRecordingCacheFolder()"
                 >
                   <Icon name="folder" :size="20" />
                 </button>

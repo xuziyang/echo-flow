@@ -30,12 +30,13 @@ const itemClass = computed(() => {
        :class="[itemClass, disabled ? 'cursor-not-allowed' : 'cursor-pointer']"
        >
 
-    <!-- Status Icon -->
-    <div class="mt-0.5">
-      <div class="w-2 h-2 rounded-full mt-1.5"
-           :class="isActive
-              ? (app.theme === 'dark' ? 'bg-brand-500 animate-pulse' : 'bg-black animate-pulse')
-              : (app.theme === 'dark' ? 'bg-gray-700' : 'bg-gray-300')"></div>
+    <div
+      class="flex h-[1.25rem] min-w-6 items-center justify-center px-1 text-[10px] font-medium leading-none tabular-nums transition-colors"
+      :class="isActive
+        ? (app.theme === 'dark' ? 'text-brand-300' : 'text-gray-700')
+        : (app.theme === 'dark' ? 'text-gray-600' : 'text-gray-400')"
+    >
+      {{ index + 1 }}
     </div>
 
     <div>

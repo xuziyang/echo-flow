@@ -11,6 +11,7 @@ const app = useAppStore()
 const player = usePlayerStore()
 const recording = useRecordingStore()
 const transcript = useTranscriptStore()
+let sentenceSwitchToken = 0
 
 const isBusy = computed(() => (
   player.isPlaying
@@ -20,9 +21,9 @@ const isBusy = computed(() => (
   || Boolean(recording.activeLoopMode)
 ))
 
-function playCurrentSentence() {
+function playSentenceAtIndex(index: number) {
   if (isBusy.value) return
-  const s = transcript.sentences[player.currentIndex]
+  const s = transcript.sentences[index]
   void player.playSentenceSegment(s?.start_ms, s?.end_ms)
 }
 
@@ -79,12 +80,13 @@ onMounted(() => {
   window.addEventListener('keydown', onKeydown)
 })
 
-watch(() => player.currentIndex, () => {
-  if (recording.activeLoopMode) {
-    void recording.stopPlayback()
+watch(() => player.currentIndex, async (index) => {
+  const currentSwitchToken = ++sentenceSwitchToken
+  await recording.stopPlayback()
+  if (currentSwitchToken !== sentenceSwitchToken) {
     return
   }
-  playCurrentSentence()
+  playSentenceAtIndex(index)
 })
 
 onUnmounted(() => {

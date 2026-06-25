@@ -70,11 +70,18 @@ export interface SplitAlignmentResult {
   right: AlignedRange
 }
 
-export interface CacheSubtitleEntry {
-  id: number
-  en: string
-  start_ms?: number
-  end_ms?: number
+interface SplitAlignmentOptions {
+  leftId: number
+  rightId: number
+  originalStartMs: number
+  originalEndMs: number
+  leftText: string
+  rightText: string
+}
+
+interface ApplicableSplitAlignment {
+  left: Sentence
+  right: Sentence
 }
 
 export const useTranscriptStore = defineStore('transcript', () => {
@@ -91,14 +98,13 @@ export const useTranscriptStore = defineStore('transcript', () => {
   const sentenceIdCounter = ref(1)
   const currentAudioPath = ref('')
   const activeTranscribeJobId = ref<number | null>(null)
-  const aligningSentenceIds = ref<number[]>([])
+  const pendingSplitAlignments = ref(new Map<number, number>())
   const currentModelPath = ref<string | null>(null)
   const currentWhisperModel = ref<string | null>(null)
   const currentModelDir = ref<string | null>(null)
 
   let nextTranscribeJobId = 1
   let nextSplitAlignmentRequestId = 1
-  const pendingSplitAlignments = new Map<number, number>()
 
   const displaySentences = computed(() => isEditing.value ? draftSentences.value : sentences.value)
 
@@ -114,7 +120,7 @@ export const useTranscriptStore = defineStore('transcript', () => {
     return { ...s, issues: [...s.issues] }
   }
 
-  function cacheEntriesFromSentences(source: Sentence[]): CacheSubtitleEntry[] {
+  function cacheEntriesFromSentences(source: Sentence[]): SubtitleEntry[] {
     return source.map(sentence => ({
       id: sentence.id,
       en: sentence.en,
@@ -160,26 +166,23 @@ export const useTranscriptStore = defineStore('transcript', () => {
   }
 
   function setSentenceAligning(sentenceId: number, requestId: number) {
-    pendingSplitAlignments.set(sentenceId, requestId)
-    if (!aligningSentenceIds.value.includes(sentenceId)) {
-      aligningSentenceIds.value = [...aligningSentenceIds.value, sentenceId]
-    }
+    pendingSplitAlignments.value = new Map(pendingSplitAlignments.value).set(sentenceId, requestId)
   }
 
   function clearSentenceAlignment(sentenceId: number, requestId?: number) {
-    if (requestId === undefined || pendingSplitAlignments.get(sentenceId) === requestId) {
-      pendingSplitAlignments.delete(sentenceId)
-      aligningSentenceIds.value = aligningSentenceIds.value.filter(id => id !== sentenceId)
-    }
+    if (requestId !== undefined && pendingSplitAlignments.value.get(sentenceId) !== requestId) return
+
+    const next = new Map(pendingSplitAlignments.value)
+    next.delete(sentenceId)
+    pendingSplitAlignments.value = next
   }
 
   function invalidateAllSplitAlignments() {
-    pendingSplitAlignments.clear()
-    aligningSentenceIds.value = []
+    pendingSplitAlignments.value = new Map()
   }
 
   function isSentenceAligning(sentenceId: number): boolean {
-    return aligningSentenceIds.value.includes(sentenceId)
+    return pendingSplitAlignments.value.has(sentenceId)
   }
 
   function hasValidTimeRange(sentence: Sentence): sentence is Sentence & { start_ms: number; end_ms: number } {
@@ -334,14 +337,37 @@ export const useTranscriptStore = defineStore('transcript', () => {
     return true
   }
 
-  async function alignSplitSentence(options: {
-    leftId: number
-    rightId: number
-    originalStartMs: number
-    originalEndMs: number
-    leftText: string
-    rightText: string
-  }): Promise<boolean> {
+  function findApplicableSplitAlignment(
+    options: SplitAlignmentOptions,
+    requestId: number,
+    result: SplitAlignmentResult,
+  ): ApplicableSplitAlignment | null {
+    const leftIndex = draftSentences.value.findIndex(sentence => sentence.id === options.leftId)
+    const rightIndex = draftSentences.value.findIndex(sentence => sentence.id === options.rightId)
+    const left = draftSentences.value[leftIndex]
+    const right = draftSentences.value[rightIndex]
+    const isCurrentRequest = pendingSplitAlignments.value.get(options.leftId) === requestId
+      && pendingSplitAlignments.value.get(options.rightId) === requestId
+
+    if (
+      !isEditing.value
+      || !isCurrentRequest
+      || !left
+      || !right
+      || rightIndex !== leftIndex + 1
+      || left.en !== options.leftText
+      || right.en !== options.rightText
+      || result.left.end_ms <= result.left.start_ms
+      || result.right.end_ms <= result.right.start_ms
+      || result.left.end_ms > result.right.start_ms
+    ) {
+      return null
+    }
+
+    return { left, right }
+  }
+
+  async function alignSplitSentence(options: SplitAlignmentOptions): Promise<boolean> {
     if (!currentAudioPath.value) return false
 
     const settings = useSettingsStore()
@@ -358,37 +384,20 @@ export const useTranscriptStore = defineStore('transcript', () => {
         rightText: options.rightText,
         modelDir: settings.modelDirectory || null,
       })
-      const leftIndex = draftSentences.value.findIndex(sentence => sentence.id === options.leftId)
-      const rightIndex = draftSentences.value.findIndex(sentence => sentence.id === options.rightId)
-      const left = draftSentences.value[leftIndex]
-      const right = draftSentences.value[rightIndex]
-      const isCurrentRequest = pendingSplitAlignments.get(options.leftId) === requestId
-        && pendingSplitAlignments.get(options.rightId) === requestId
-      const canApply = Boolean(
-        isEditing.value
-        && isCurrentRequest
-        && left
-        && right
-        && rightIndex === leftIndex + 1
-        && left.en === options.leftText
-        && right.en === options.rightText
-        && result.left.end_ms > result.left.start_ms
-        && result.right.end_ms > result.right.start_ms
-        && result.left.end_ms <= result.right.start_ms
-      )
-      if (!canApply || !left || !right) return false
+      const splitAlignment = findApplicableSplitAlignment(options, requestId, result)
+      if (!splitAlignment) return false
 
-      left.start_ms = result.left.start_ms
-      left.end_ms = result.left.end_ms
-      right.start_ms = result.right.start_ms
-      right.end_ms = result.right.end_ms
+      splitAlignment.left.start_ms = result.left.start_ms
+      splitAlignment.left.end_ms = result.left.end_ms
+      splitAlignment.right.start_ms = result.right.start_ms
+      splitAlignment.right.end_ms = result.right.end_ms
       hasUnsavedChanges.value = true
       void persistCurrentCache(draftSentences.value)
       return true
     } catch (error) {
       if (
-        pendingSplitAlignments.get(options.leftId) === requestId
-        || pendingSplitAlignments.get(options.rightId) === requestId
+        pendingSplitAlignments.value.get(options.leftId) === requestId
+        || pendingSplitAlignments.value.get(options.rightId) === requestId
       ) {
         app.showSubtitleToast(
           `Split alignment failed; kept estimated timing: ${typeof error === 'string' ? error : String(error)}`,
@@ -564,7 +573,6 @@ export const useTranscriptStore = defineStore('transcript', () => {
     sentences, isEditing, editingIndex, draftSentences, hasUnsavedChanges,
     isTranscribing, transcribeProgress, transcribeStatus, transcribeError,
     sentenceIdCounter, currentAudioPath, activeTranscribeJobId, displaySentences,
-    aligningSentenceIds,
     cloneSentence, enterEditMode, cancelEdits, saveEdits,
     startEditing, finishEditing, updateDraft, splitSentence, alignSplitSentence,
     mergeWithPrev, mergeWithNext, isSentenceAligning,

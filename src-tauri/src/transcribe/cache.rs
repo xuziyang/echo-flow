@@ -6,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use super::types::{AudioSamples, FrontendTranscriptSegment, Subtitle};
+use super::types::{AudioSamples, CacheSubtitleEntry, FrontendTranscriptSegment, Subtitle};
 use super::writer;
 
 pub const CACHE_SCHEMA_VERSION: u32 = 1;
@@ -16,6 +16,7 @@ pub struct TranscriptionCachePaths {
     pub entry_dir: PathBuf,
     pub audio_wav: PathBuf,
     pub subtitles_srt: PathBuf,
+    pub subtitles_meta_json: PathBuf,
     pub metadata_json: PathBuf,
 }
 
@@ -30,6 +31,12 @@ pub struct TranscriptionCacheMetadata {
     pub align_model: String,
     pub align_vocab: String,
     pub created_at_unix_secs: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CachedSubtitleMetadata {
+    pub schema_version: u32,
+    pub sentences: Vec<CacheSubtitleEntry>,
 }
 
 pub fn sha256_file(path: &Path) -> io::Result<String> {
@@ -83,7 +90,11 @@ pub fn cache_key(
     );
     let mut hasher = Sha256::new();
     hasher.update(raw.as_bytes());
-    format!("v{}-{}", CACHE_SCHEMA_VERSION, hex_lower(&hasher.finalize()))
+    format!(
+        "v{}-{}",
+        CACHE_SCHEMA_VERSION,
+        hex_lower(&hasher.finalize())
+    )
 }
 
 pub fn cache_paths(base_dir: &Path, key: &str) -> TranscriptionCachePaths {
@@ -91,13 +102,29 @@ pub fn cache_paths(base_dir: &Path, key: &str) -> TranscriptionCachePaths {
     TranscriptionCachePaths {
         audio_wav: entry_dir.join("audio.wav"),
         subtitles_srt: entry_dir.join("subtitles.srt"),
+        subtitles_meta_json: entry_dir.join("subtitles.meta.json"),
         metadata_json: entry_dir.join("metadata.json"),
         entry_dir,
     }
 }
 
-pub fn read_cached_segments(path: &Path) -> io::Result<Vec<FrontendTranscriptSegment>> {
-    let content = fs::read_to_string(path)?;
+pub fn read_cached_segments(
+    paths: &TranscriptionCachePaths,
+) -> io::Result<Vec<FrontendTranscriptSegment>> {
+    if paths.subtitles_meta_json.exists() {
+        match read_cached_subtitle_metadata(&paths.subtitles_meta_json) {
+            Ok(segments) => return Ok(segments),
+            Err(error) => {
+                log::warn!(
+                    "Ignoring invalid cached subtitle metadata at {}: {}",
+                    paths.subtitles_meta_json.display(),
+                    error
+                );
+            }
+        }
+    }
+
+    let content = fs::read_to_string(&paths.subtitles_srt)?;
     parse_srt_segments(&content)
 }
 
@@ -111,15 +138,35 @@ pub fn write_cache_entry(
 
     let audio_tmp = paths.entry_dir.join("audio.wav.tmp");
     let subtitles_tmp = paths.entry_dir.join("subtitles.srt.tmp");
+    let subtitles_meta_tmp = paths.entry_dir.join("subtitles.meta.json.tmp");
     let metadata_tmp = paths.entry_dir.join("metadata.json.tmp");
 
     write_audio_wav(&audio_tmp, audio)?;
     write_subtitles_srt(&subtitles_tmp, subtitles)?;
+    write_subtitles_meta_json(&subtitles_meta_tmp, &entries_from_subtitles(subtitles))?;
     write_metadata_json(&metadata_tmp, metadata)?;
 
     rename_replace(&audio_tmp, &paths.audio_wav)?;
     rename_replace(&subtitles_tmp, &paths.subtitles_srt)?;
+    rename_replace(&subtitles_meta_tmp, &paths.subtitles_meta_json)?;
     rename_replace(&metadata_tmp, &paths.metadata_json)?;
+
+    Ok(())
+}
+
+pub fn write_cached_subtitles(
+    paths: &TranscriptionCachePaths,
+    entries: &[CacheSubtitleEntry],
+) -> io::Result<()> {
+    fs::create_dir_all(&paths.entry_dir)?;
+    let subtitles_tmp = paths.entry_dir.join("subtitles.srt.tmp");
+    let subtitles_meta_tmp = paths.entry_dir.join("subtitles.meta.json.tmp");
+    let subtitles = subtitles_from_entries(entries);
+
+    write_subtitles_srt(&subtitles_tmp, &subtitles)?;
+    write_subtitles_meta_json(&subtitles_meta_tmp, entries)?;
+    rename_replace(&subtitles_tmp, &paths.subtitles_srt)?;
+    rename_replace(&subtitles_meta_tmp, &paths.subtitles_meta_json)?;
 
     Ok(())
 }
@@ -188,6 +235,95 @@ fn write_metadata_json(path: &Path, metadata: &TranscriptionCacheMetadata) -> io
     fs::write(path, bytes)
 }
 
+fn write_subtitles_meta_json(path: &Path, entries: &[CacheSubtitleEntry]) -> io::Result<()> {
+    let metadata = CachedSubtitleMetadata {
+        schema_version: CACHE_SCHEMA_VERSION,
+        sentences: entries.to_vec(),
+    };
+    let bytes = serde_json::to_vec_pretty(&metadata)
+        .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
+    fs::write(path, bytes)
+}
+
+fn read_cached_subtitle_metadata(path: &Path) -> io::Result<Vec<FrontendTranscriptSegment>> {
+    let bytes = fs::read(path)?;
+    let metadata = serde_json::from_slice::<CachedSubtitleMetadata>(&bytes)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    if metadata.sentences.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut segments = Vec::with_capacity(metadata.sentences.len());
+    for entry in metadata.sentences {
+        let start_ms = entry.start_ms.ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "cached subtitle metadata missing start_ms",
+            )
+        })?;
+        let end_ms = entry.end_ms.ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "cached subtitle metadata missing end_ms",
+            )
+        })?;
+        if entry.id <= 0 || entry.en.trim().is_empty() || end_ms <= start_ms {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "cached subtitle metadata contains invalid sentence",
+            ));
+        }
+
+        segments.push(FrontendTranscriptSegment {
+            id: entry.id,
+            en: entry.en,
+            start_ms,
+            end_ms,
+            words: Vec::new(),
+        });
+    }
+
+    Ok(segments)
+}
+
+fn entries_from_subtitles(subtitles: &[Subtitle]) -> Vec<CacheSubtitleEntry> {
+    subtitles
+        .iter()
+        .map(|subtitle| CacheSubtitleEntry {
+            id: subtitle.index as i64,
+            en: subtitle.text.clone(),
+            start_ms: Some(subtitle.start_ms as i64),
+            end_ms: Some(subtitle.end_ms as i64),
+        })
+        .collect()
+}
+
+fn subtitles_from_entries(entries: &[CacheSubtitleEntry]) -> Vec<Subtitle> {
+    entries
+        .iter()
+        .enumerate()
+        .map(|(index, entry)| {
+            let fallback_start_ms = index as u64 * 5_000 + 1_000;
+            let start_ms = entry
+                .start_ms
+                .filter(|value| *value >= 0)
+                .map(|value| value as u64)
+                .unwrap_or(fallback_start_ms);
+            let end_ms = entry
+                .end_ms
+                .filter(|value| *value > start_ms as i64)
+                .map(|value| value as u64)
+                .unwrap_or(start_ms + 500);
+            Subtitle {
+                index: index + 1,
+                start_ms,
+                end_ms,
+                text: entry.en.clone(),
+            }
+        })
+        .collect()
+}
+
 fn rename_replace(from: &Path, to: &Path) -> io::Result<()> {
     if to.exists() {
         fs::remove_file(to)?;
@@ -224,10 +360,16 @@ fn parse_srt_segments(content: &str) -> io::Result<Vec<FrontendTranscriptSegment
             )
         })?;
         let start_ms = parse_srt_time(start).ok_or_else(|| {
-            io::Error::new(io::ErrorKind::InvalidData, "cached SRT has invalid start time")
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "cached SRT has invalid start time",
+            )
         })?;
         let end_ms = parse_srt_time(end).ok_or_else(|| {
-            io::Error::new(io::ErrorKind::InvalidData, "cached SRT has invalid end time")
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "cached SRT has invalid end time",
+            )
         })?;
         let text = lines[2..].join("\n").trim().to_owned();
         if text.is_empty() {
@@ -336,5 +478,55 @@ mod tests {
         assert_eq!(segments[0].en, "Hello.");
         assert_eq!(segments[0].start_ms, 1000);
         assert_eq!(segments[1].end_ms, 4000);
+    }
+
+    #[test]
+    fn writes_cached_subtitle_metadata_with_stable_ids() {
+        let base = unique_temp_path("cache-meta");
+        let paths = cache_paths(&base, "entry");
+        let entries = vec![
+            CacheSubtitleEntry {
+                id: 7,
+                en: "Hello.".to_owned(),
+                start_ms: Some(1000),
+                end_ms: Some(2500),
+            },
+            CacheSubtitleEntry {
+                id: 12,
+                en: "World.".to_owned(),
+                start_ms: Some(3000),
+                end_ms: Some(4000),
+            },
+        ];
+
+        write_cached_subtitles(&paths, &entries).unwrap();
+
+        assert!(paths.subtitles_srt.exists());
+        assert!(paths.subtitles_meta_json.exists());
+        let segments = read_cached_segments(&paths).unwrap();
+        assert_eq!(segments[0].id, 7);
+        assert_eq!(segments[1].id, 12);
+
+        let _ = fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn read_cached_segments_falls_back_to_srt_without_metadata() {
+        let base = unique_temp_path("cache-srt-fallback");
+        let paths = cache_paths(&base, "entry");
+        fs::create_dir_all(&paths.entry_dir).unwrap();
+        fs::write(
+            &paths.subtitles_srt,
+            "1\n00:00:01,000 --> 00:00:02,500\nHello.\n\n",
+        )
+        .unwrap();
+
+        let segments = read_cached_segments(&paths).unwrap();
+
+        assert_eq!(segments.len(), 1);
+        assert_eq!(segments[0].id, 1);
+        assert_eq!(segments[0].en, "Hello.");
+
+        let _ = fs::remove_dir_all(base);
     }
 }

@@ -36,6 +36,8 @@ pub fn run() {
             audio::get_playback_state,
             audio::save_recording,
             transcribe::transcribe_audio,
+            transcribe::align_split_sentence,
+            transcribe::save_transcription_cache_subtitles,
             transcribe::get_app_cache_dir,
             transcribe::get_transcription_cache_dir,
             transcribe::get_recording_cache_dir,

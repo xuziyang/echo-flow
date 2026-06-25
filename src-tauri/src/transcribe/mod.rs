@@ -29,7 +29,9 @@ pub use aligner::{Aligner, AlignerConfig};
 pub use asr::{Asr, AsrConfig};
 pub use audio::Audio;
 pub use error::SubtitleError;
-pub use types::{FrontendTranscriptSegment, ProcessingResult};
+pub use types::{
+    CacheSubtitleEntry, FrontendTranscriptSegment, ProcessingResult, SplitAlignmentResult,
+};
 
 // Re-export frontend-compatible types (旧接口保持兼容)
 pub use types::{TranscribeDoneEvent, TranscribeErrorEvent, TranscribeProgressEvent};
@@ -43,6 +45,18 @@ const DEFAULT_WHISPER_MODELS: [&str; 4] = [
     "ggml-medium.en.bin",
     "ggml-tiny.en.bin",
 ];
+
+fn resolve_model_cache_dir(model_dir: Option<&str>) -> PathBuf {
+    let home = std::env::var("HOME").unwrap_or_default();
+    match model_dir {
+        Some(dir) if !dir.is_empty() => PathBuf::from(if dir.starts_with('~') {
+            dir.replacen('~', &home, 1)
+        } else {
+            dir.to_owned()
+        }),
+        _ => PathBuf::from(format!("{}/{}", home, DEFAULT_MODEL_CACHE_DIR)),
+    }
+}
 
 /// SubtitlePipeline - 完整的字幕生成 pipeline
 #[derive(Debug, Default, Clone)]
@@ -125,32 +139,16 @@ fn resolve_first_model_path(paths: &[PathBuf], model_name: &str) -> Result<PathB
         })
 }
 
-/// 转写音频文件，返回带时间戳的字幕
-#[tauri::command]
-pub fn transcribe_audio(
-    window: tauri::Window,
-    app: tauri::AppHandle,
-    audio_path: String,
-    model_path: Option<String>,
-    whisper_model: Option<String>,
-    model_dir: Option<String>,
-    job_id: Option<u64>,
-) -> Result<u64, String> {
-    let home = std::env::var("HOME").unwrap_or_default();
-    let cache_dir = match model_dir {
-        Some(ref dir) if !dir.is_empty() => PathBuf::from(if dir.starts_with('~') {
-            dir.replacen('~', &home, 1)
-        } else {
-            dir.clone()
-        }),
-        _ => PathBuf::from(format!("{}/{}", home, DEFAULT_MODEL_CACHE_DIR)),
-    };
-
-    // 解析模型路径
+fn resolve_transcription_model_paths(
+    model_path: Option<&str>,
+    whisper_model: Option<&str>,
+    model_dir: Option<&str>,
+) -> Result<(PathBuf, PathBuf, PathBuf, PathBuf), String> {
+    let cache_dir = resolve_model_cache_dir(model_dir);
     let whisper_model = match model_path {
-        Some(ref p) => resolve_model_path(&PathBuf::from(p), "Whisper model")?,
+        Some(p) => resolve_model_path(&PathBuf::from(p), "Whisper model")?,
         None if whisper_model.is_some() => {
-            let filename = whisper_model_filename(whisper_model.as_deref().unwrap())?;
+            let filename = whisper_model_filename(whisper_model.unwrap())?;
             resolve_model_path(&cache_dir.join(filename), "Whisper model")?
         }
         None => {
@@ -165,6 +163,59 @@ pub fn transcribe_audio(
     let align_model =
         resolve_model_path(&cache_dir.join("wav2vec2-base-en.onnx"), "Aligner model")?;
     let align_vocab = resolve_model_path(&cache_dir.join("wav2vec2-vocab.json"), "Aligner vocab")?;
+
+    Ok((whisper_model, vad_model, align_model, align_vocab))
+}
+
+fn transcription_cache_paths_for_audio(
+    app: &tauri::AppHandle,
+    audio_path: &str,
+    whisper_model: &Path,
+    vad_model: &Path,
+    align_model: &Path,
+    align_vocab: &Path,
+) -> Result<cache::TranscriptionCachePaths, String> {
+    let app_cache_dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|error| format!("Failed to resolve app cache dir: {}", error))?;
+    let source_hash = cache::sha256_file(Path::new(audio_path))
+        .map_err(|error| format!("Failed to hash input file for cache: {}", error))?;
+    let whisper_identity = cache::model_identity(whisper_model)
+        .map_err(|error| format!("Failed to inspect Whisper model for cache: {}", error))?;
+    let vad_identity = cache::model_identity(vad_model)
+        .map_err(|error| format!("Failed to inspect VAD model for cache: {}", error))?;
+    let align_identity = cache::model_identity(align_model)
+        .map_err(|error| format!("Failed to inspect alignment model for cache: {}", error))?;
+    let vocab_identity = cache::model_identity(align_vocab)
+        .map_err(|error| format!("Failed to inspect alignment vocab for cache: {}", error))?;
+    let cache_key = cache::cache_key(
+        &source_hash,
+        &whisper_identity,
+        &vad_identity,
+        &align_identity,
+        &vocab_identity,
+    );
+
+    Ok(cache::cache_paths(&app_cache_dir, &cache_key))
+}
+
+/// 转写音频文件，返回带时间戳的字幕
+#[tauri::command]
+pub fn transcribe_audio(
+    window: tauri::Window,
+    app: tauri::AppHandle,
+    audio_path: String,
+    model_path: Option<String>,
+    whisper_model: Option<String>,
+    model_dir: Option<String>,
+    job_id: Option<u64>,
+) -> Result<u64, String> {
+    let (whisper_model, vad_model, align_model, align_vocab) = resolve_transcription_model_paths(
+        model_path.as_deref(),
+        whisper_model.as_deref(),
+        model_dir.as_deref(),
+    )?;
     let app_cache_dir = app
         .path()
         .app_cache_dir()
@@ -256,7 +307,7 @@ pub fn transcribe_audio(
         let cache_paths = cache::cache_paths(&app_cache_dir, &cache_key);
 
         if cache_paths.subtitles_srt.exists() {
-            match cache::read_cached_segments(&cache_paths.subtitles_srt) {
+            match cache::read_cached_segments(&cache_paths) {
                 Ok(segments) => {
                     log::info!(
                         "Using cached transcription: audio={}, cache={}",
@@ -400,6 +451,72 @@ pub fn transcribe_audio(
 }
 
 #[tauri::command]
+pub fn align_split_sentence(
+    audio_path: String,
+    start_ms: i64,
+    end_ms: i64,
+    left_text: String,
+    right_text: String,
+    model_dir: Option<String>,
+) -> Result<SplitAlignmentResult, String> {
+    if start_ms < 0 || end_ms <= start_ms + 1 {
+        return Err(format!(
+            "Invalid split alignment range: {}..{}",
+            start_ms, end_ms
+        ));
+    }
+
+    let cache_dir = resolve_model_cache_dir(model_dir.as_deref());
+    let align_model =
+        resolve_model_path(&cache_dir.join("wav2vec2-base-en.onnx"), "Aligner model")?;
+    let align_vocab = resolve_model_path(&cache_dir.join("wav2vec2-vocab.json"), "Aligner vocab")?;
+    let audio = Audio::new()
+        .load(Path::new(&audio_path))
+        .map_err(|error| error.to_string())?;
+    let aligner = Aligner::with_config(AlignerConfig {
+        model_path: align_model,
+        vocab_path: align_vocab,
+    });
+
+    aligner
+        .align_split(
+            &audio,
+            start_ms as u64,
+            end_ms as u64,
+            &left_text,
+            &right_text,
+        )
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn save_transcription_cache_subtitles(
+    app: tauri::AppHandle,
+    audio_path: String,
+    entries: Vec<CacheSubtitleEntry>,
+    model_path: Option<String>,
+    whisper_model: Option<String>,
+    model_dir: Option<String>,
+) -> Result<(), String> {
+    let (whisper_model_path, vad_model, align_model, align_vocab) =
+        resolve_transcription_model_paths(
+            model_path.as_deref(),
+            whisper_model.as_deref(),
+            model_dir.as_deref(),
+        )?;
+    let cache_paths = transcription_cache_paths_for_audio(
+        &app,
+        &audio_path,
+        &whisper_model_path,
+        &vad_model,
+        &align_model,
+        &align_vocab,
+    )?;
+    cache::write_cached_subtitles(&cache_paths, &entries)
+        .map_err(|error| format!("Failed to write cached subtitles: {}", error))
+}
+
+#[tauri::command]
 pub fn get_app_cache_dir(app: tauri::AppHandle) -> Result<String, String> {
     let app_cache_dir = app
         .path()
@@ -434,12 +551,7 @@ pub fn get_recording_cache_dir(app: tauri::AppHandle) -> Result<String, String> 
     Ok(cache_dir.display().to_string())
 }
 
-fn emit_transcribe_error(
-    window: &tauri::Window,
-    job_id: u64,
-    audio_path: &str,
-    error: String,
-) {
+fn emit_transcribe_error(window: &tauri::Window, job_id: u64, audio_path: &str, error: String) {
     eprintln!("Transcription failed: {}", error);
     let _ = window.emit(
         "transcribe-error",

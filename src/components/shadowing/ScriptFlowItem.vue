@@ -22,6 +22,7 @@ const canMergePrev = computed(() => transcript.isEditing && props.index > 0)
 const canMergeNext = computed(() => (
   transcript.isEditing && props.index < transcript.draftSentences.length - 1
 ))
+const isAligning = computed(() => transcript.isSentenceAligning(props.item.id))
 const itemClass = computed(() => {
   if (isActive.value) {
     return app.theme === 'dark'
@@ -104,13 +105,15 @@ watch(() => [transcript.isEditing, transcript.editingIndex] as const, ([isEditin
         />
         <div class="flex items-center justify-between gap-1.5">
           <span
-            v-if="item.status !== 'saved'"
+            v-if="isAligning || item.status !== 'saved'"
             class="rounded border px-1 py-0.5 text-[9px] font-semibold uppercase leading-none"
-            :class="item.status === 'new'
-              ? (app.theme === 'dark' ? 'border-emerald-900/60 text-emerald-300' : 'border-emerald-200 text-emerald-700')
-              : (app.theme === 'dark' ? 'border-sky-900/60 text-sky-300' : 'border-sky-200 text-sky-700')"
+            :class="isAligning
+              ? (app.theme === 'dark' ? 'border-amber-900/60 text-amber-300' : 'border-amber-200 text-amber-700')
+              : (item.status === 'new'
+                ? (app.theme === 'dark' ? 'border-emerald-900/60 text-emerald-300' : 'border-emerald-200 text-emerald-700')
+                : (app.theme === 'dark' ? 'border-sky-900/60 text-sky-300' : 'border-sky-200 text-sky-700'))"
           >
-            {{ item.status }}
+            {{ isAligning ? 'aligning' : item.status }}
           </span>
           <span v-else />
           <div class="flex items-center gap-0.5">

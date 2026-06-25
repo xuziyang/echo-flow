@@ -241,14 +241,25 @@ export const useRecordingStore = defineStore('recording', () => {
     return waveform.map(s => s / globalMax)
   }
 
-  function getSentenceRecordingKey(sentenceIndex: number) {
+  function getSentenceId(sentenceIndex: number) {
     const sentence = transcript.sentences[sentenceIndex]
-    const sentenceId = sentence?.id ?? 'no-id'
-    return `${player.currentPath || 'no-audio'}::${sentenceIndex}::${sentenceId}`
+    return sentence?.id ?? null
+  }
+
+  function getSentenceRecordingKey(sentenceIndex: number) {
+    const sentenceId = getSentenceId(sentenceIndex)
+    return `${player.currentPath || 'no-audio'}::${sentenceId ?? 'no-id'}`
+  }
+
+  function getLegacySentenceRecordingKey(sentenceIndex: number) {
+    const sentenceId = getSentenceId(sentenceIndex)
+    return `${player.currentPath || 'no-audio'}::${sentenceIndex}::${sentenceId ?? 'no-id'}`
   }
 
   function getCurrentSentenceRecording() {
-    return recordingsBySentence.value[getSentenceRecordingKey(player.currentIndex)] ?? null
+    return recordingsBySentence.value[getSentenceRecordingKey(player.currentIndex)]
+      ?? recordingsBySentence.value[getLegacySentenceRecordingKey(player.currentIndex)]
+      ?? null
   }
 
   function applyStoredRecording(recording: StoredRecording | null) {
@@ -350,10 +361,10 @@ export const useRecordingStore = defineStore('recording', () => {
     const baseDirectory = joinPath(await getRecordingCacheDirectory(), audioStem)
 
     const sentence = transcript.sentences[sentenceIndex]
-    const sentenceNumber = String(sentenceIndex + 1).padStart(3, '0')
-    const sentenceId = sentence?.id ? `-${sentence.id}` : ''
+    const sentenceId = sentence?.id ?? null
+    if (!sentenceId) return null
 
-    return joinPath(baseDirectory, `sentence-${sentenceNumber}${sentenceId}.wav`)
+    return joinPath(baseDirectory, `sentence-${sentenceId}.wav`)
   }
 
   async function saveCurrentSentenceRecording(sentenceIndex: number) {

@@ -100,6 +100,14 @@ pub struct FrontendTranscriptSegment {
     pub words: Vec<WordToken>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CacheSubtitleEntry {
+    pub id: i64,
+    pub en: String,
+    pub start_ms: Option<i64>,
+    pub end_ms: Option<i64>,
+}
+
 /// Whisper 转写错误事件
 #[derive(Debug, Clone, Serialize)]
 pub struct TranscribeErrorEvent {
@@ -114,4 +122,16 @@ pub struct WordToken {
     pub text: String,
     pub start_ms: i64,
     pub end_ms: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AlignedRange {
+    pub start_ms: i64,
+    pub end_ms: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SplitAlignmentResult {
+    pub left: AlignedRange,
+    pub right: AlignedRange,
 }

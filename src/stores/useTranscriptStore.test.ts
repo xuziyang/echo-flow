@@ -1,5 +1,12 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
+
+const invokeMock = vi.hoisted(() => vi.fn())
+
+vi.mock('@tauri-apps/api/core', () => ({
+  invoke: (...args: unknown[]) => invokeMock(...args),
+}))
+
 import {
   useTranscriptStore,
   type Sentence,
@@ -22,9 +29,14 @@ function sentence(overrides: Partial<Sentence> = {}): Sentence {
   }
 }
 
+function flushPromises() {
+  return new Promise(resolve => setTimeout(resolve, 0))
+}
+
 describe('useTranscriptStore', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
+    invokeMock.mockReset()
   })
 
   it('does not enter edit mode when there are no sentences', () => {
@@ -76,6 +88,107 @@ describe('useTranscriptStore', () => {
     expect(transcript.hasUnsavedChanges).toBe(true)
   })
 
+  it('keeps estimated split timing while async alignment is pending', async () => {
+    const transcript = useTranscriptStore()
+    transcript.currentAudioPath = '/tmp/current.mp3'
+    invokeMock.mockReturnValue(new Promise(() => {}))
+    transcript.sentences = [sentence({ id: 7, en: 'Hello there friend.', start_ms: 100, end_ms: 1100 })]
+    transcript.enterEditMode()
+
+    expect(transcript.splitSentence(0, 12)).toBe(true)
+
+    expect(transcript.draftSentences[0]).toMatchObject({ start_ms: 100, end_ms: 732 })
+    expect(transcript.draftSentences[1]).toMatchObject({ start_ms: 732, end_ms: 1100 })
+    expect(transcript.isSentenceAligning(7)).toBe(true)
+    expect(transcript.isSentenceAligning(8)).toBe(true)
+    expect(invokeMock).toHaveBeenCalledWith('align_split_sentence', {
+      audioPath: '/tmp/current.mp3',
+      startMs: 100,
+      endMs: 1100,
+      leftText: 'Hello there',
+      rightText: 'friend.',
+      modelDir: null,
+    })
+
+    await flushPromises()
+  })
+
+  it('updates split timing when async alignment succeeds', async () => {
+    const transcript = useTranscriptStore()
+    transcript.currentAudioPath = '/tmp/current.mp3'
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'align_split_sentence') {
+        return Promise.resolve({
+          left: { start_ms: 120, end_ms: 620 },
+          right: { start_ms: 650, end_ms: 1040 },
+        })
+      }
+      return Promise.resolve(undefined)
+    })
+    transcript.sentences = [sentence({ id: 7, en: 'Hello there friend.', start_ms: 100, end_ms: 1100 })]
+    transcript.enterEditMode()
+
+    transcript.splitSentence(0, 12)
+    await flushPromises()
+
+    expect(transcript.draftSentences[0]).toMatchObject({ start_ms: 120, end_ms: 620 })
+    expect(transcript.draftSentences[1]).toMatchObject({ start_ms: 650, end_ms: 1040 })
+    expect(transcript.isSentenceAligning(7)).toBe(false)
+    expect(transcript.isSentenceAligning(8)).toBe(false)
+    expect(invokeMock).toHaveBeenCalledWith('save_transcription_cache_subtitles', {
+      audioPath: '/tmp/current.mp3',
+      entries: [
+        { id: 7, en: 'Hello there', start_ms: 120, end_ms: 620 },
+        { id: 8, en: 'friend.', start_ms: 650, end_ms: 1040 },
+      ],
+      modelPath: null,
+      whisperModel: 'whisper-base',
+      modelDir: null,
+    })
+  })
+
+  it('keeps estimated split timing when async alignment fails', async () => {
+    const transcript = useTranscriptStore()
+    transcript.currentAudioPath = '/tmp/current.mp3'
+    invokeMock.mockRejectedValue('alignment unavailable')
+    transcript.sentences = [sentence({ id: 7, en: 'Hello there friend.', start_ms: 100, end_ms: 1100 })]
+    transcript.enterEditMode()
+
+    transcript.splitSentence(0, 12)
+    await flushPromises()
+
+    expect(transcript.draftSentences[0]).toMatchObject({ start_ms: 100, end_ms: 732 })
+    expect(transcript.draftSentences[1]).toMatchObject({ start_ms: 732, end_ms: 1100 })
+    expect(transcript.isSentenceAligning(7)).toBe(false)
+    expect(transcript.isSentenceAligning(8)).toBe(false)
+  })
+
+  it('does not apply stale alignment results after the split text changes', async () => {
+    const transcript = useTranscriptStore()
+    transcript.currentAudioPath = '/tmp/current.mp3'
+    let resolveAlignment!: (value: unknown) => void
+    invokeMock.mockReturnValue(new Promise(resolve => {
+      resolveAlignment = resolve
+    }))
+    transcript.sentences = [sentence({ id: 7, en: 'Hello there friend.', start_ms: 100, end_ms: 1100 })]
+    transcript.enterEditMode()
+
+    transcript.splitSentence(0, 12)
+    transcript.updateDraft(0, 'Hello there!')
+    resolveAlignment({
+      left: { start_ms: 120, end_ms: 620 },
+      right: { start_ms: 650, end_ms: 1040 },
+    })
+    await flushPromises()
+
+    expect(transcript.draftSentences[0]).toMatchObject({
+      en: 'Hello there!',
+      start_ms: 100,
+      end_ms: 732,
+    })
+    expect(transcript.draftSentences[1]).toMatchObject({ start_ms: 732, end_ms: 1100 })
+  })
+
   it('keeps split timestamps continuous and ordered', () => {
     const transcript = useTranscriptStore()
     transcript.sentences = [sentence({ en: 'abcd', start_ms: 10, end_ms: 14 })]
@@ -117,8 +230,10 @@ describe('useTranscriptStore', () => {
     expect(player.currentIndex).toBe(1)
   })
 
-  it('merges a sentence with the next draft and saves all statuses as saved', () => {
+  it('merges a sentence with the next draft and saves all statuses as saved', async () => {
     const transcript = useTranscriptStore()
+    transcript.currentAudioPath = '/tmp/current.mp3'
+    invokeMock.mockResolvedValue(undefined)
     transcript.sentences = [
       sentence({ id: 1, en: 'Hello', start_ms: 100, end_ms: 500 }),
       sentence({ id: 2, en: 'there', start_ms: 520, end_ms: 900 }),
@@ -136,7 +251,7 @@ describe('useTranscriptStore', () => {
       end_ms: 900,
     })
 
-    transcript.saveEdits()
+    await transcript.saveEdits()
 
     expect(transcript.isEditing).toBe(false)
     expect(transcript.sentences).toHaveLength(1)
@@ -146,6 +261,13 @@ describe('useTranscriptStore', () => {
       dirty: false,
       start_ms: 100,
       end_ms: 900,
+    })
+    expect(invokeMock).toHaveBeenCalledWith('save_transcription_cache_subtitles', {
+      audioPath: '/tmp/current.mp3',
+      entries: [{ id: 1, en: 'Hello there', start_ms: 100, end_ms: 900 }],
+      modelPath: null,
+      whisperModel: 'whisper-base',
+      modelDir: null,
     })
   })
 

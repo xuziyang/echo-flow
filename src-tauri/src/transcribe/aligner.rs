@@ -10,8 +10,8 @@ use ort::value::Tensor;
 use super::audio::SAMPLE_RATE;
 use super::error::SubtitleError;
 use super::types::{
-    ms_to_sample, samples_to_ms, validate_audio, AudioSamples, Subtitle, Transcript,
-    TranscriptSegment, DEFAULT_LANGUAGE,
+    ms_to_sample, samples_to_ms, validate_audio, AlignedRange, AudioSamples, SplitAlignmentResult,
+    Subtitle, Transcript, TranscriptSegment, DEFAULT_LANGUAGE,
 };
 
 const MIN_WAV2VEC_SAMPLES: usize = 400;
@@ -180,6 +180,130 @@ impl Aligner {
         }
 
         Ok(subtitles)
+    }
+
+    pub fn align_split(
+        &self,
+        audio: &AudioSamples,
+        start_ms: u64,
+        end_ms: u64,
+        left_text: &str,
+        right_text: &str,
+    ) -> Result<SplitAlignmentResult, SubtitleError> {
+        validate_audio(audio, SAMPLE_RATE)?;
+        let left_text = left_text.trim();
+        let right_text = right_text.trim();
+        if left_text.is_empty() || right_text.is_empty() {
+            return Err(SubtitleError::AlignInference(
+                "split alignment requires non-empty left and right text".to_owned(),
+            ));
+        }
+        if end_ms <= start_ms + 1 {
+            return Err(SubtitleError::AlignInference(format!(
+                "invalid split alignment range: {start_ms}..{end_ms}"
+            )));
+        }
+
+        let mut models_guard = self
+            .models
+            .lock()
+            .map_err(|error| SubtitleError::AlignInference(error.to_string()))?;
+        if models_guard.is_none() {
+            *models_guard = Some(load_models(&self.config)?);
+        }
+        let models = models_guard
+            .as_mut()
+            .expect("alignment models should be initialized");
+
+        let combined_text = format!("{left_text} {right_text}");
+        let segment = TranscriptSegment {
+            id: 0,
+            start_ms,
+            end_ms,
+            text: combined_text,
+        };
+        let aligned_chars = align_segment(audio, &segment, models)?;
+        let aligned_chars = aligned_chars.as_deref().ok_or_else(|| {
+            SubtitleError::AlignInference("failed to align split sentence text".to_owned())
+        })?;
+        let aligned_words = aligned_words(&segment.text, aligned_chars);
+
+        let left_end = left_text.chars().count();
+        let right_start = left_end + 1;
+        let right_end = right_start + right_text.chars().count();
+        let left_span = SentenceSpan {
+            start: 0,
+            end: left_end,
+            text: left_text.to_owned(),
+        };
+        let right_span = SentenceSpan {
+            start: right_start,
+            end: right_end,
+            text: right_text.to_owned(),
+        };
+
+        let (left_start, left_end) = sentence_time(&left_span, &aligned_words, Some(aligned_chars));
+        let (right_start, right_end) =
+            sentence_time(&right_span, &aligned_words, Some(aligned_chars));
+        let (Some(left_start), Some(left_end), Some(right_start), Some(right_end)) =
+            (left_start, left_end, right_start, right_end)
+        else {
+            return Err(SubtitleError::AlignInference(
+                "failed to resolve aligned split ranges".to_owned(),
+            ));
+        };
+
+        Ok(normalize_split_alignment(
+            start_ms,
+            end_ms,
+            left_start,
+            left_end,
+            right_start,
+            right_end,
+        ))
+    }
+}
+
+fn normalize_split_alignment(
+    range_start: u64,
+    range_end: u64,
+    left_start: u64,
+    left_end: u64,
+    right_start: u64,
+    right_end: u64,
+) -> SplitAlignmentResult {
+    let mut left_start = left_start.clamp(range_start, range_end - 1);
+    let mut left_end = left_end.clamp(left_start + 1, range_end);
+    let mut right_start = right_start.clamp(range_start, range_end - 1);
+    let mut right_end = right_end.clamp(right_start + 1, range_end);
+
+    if left_start > right_start {
+        std::mem::swap(&mut left_start, &mut right_start);
+    }
+    if left_end > right_end {
+        std::mem::swap(&mut left_end, &mut right_end);
+    }
+    if left_end >= right_start {
+        let boundary = ((left_end + right_start) / 2).clamp(range_start + 1, range_end - 1);
+        left_end = boundary;
+        right_start = boundary;
+    }
+    if left_end <= left_start {
+        left_end = (left_start + 1).min(range_end);
+    }
+    if right_end <= right_start {
+        right_end = (right_start + 1).min(range_end);
+    }
+
+    SplitAlignmentResult {
+        left: AlignedRange {
+            start_ms: left_start as i64,
+            end_ms: left_end as i64,
+        },
+        right: AlignedRange {
+            start_ms: right_start as i64,
+            end_ms: right_end as i64,
+        },
     }
 }
 
@@ -845,5 +969,16 @@ mod tests {
             sentence_time(&span, &aligned_words, Some(&aligned_chars)),
             (Some(100), Some(220))
         );
+    }
+
+    #[test]
+    fn normalize_split_alignment_keeps_ranges_ordered_and_bounded() {
+        let result = normalize_split_alignment(100, 1_100, 90, 800, 700, 1_300);
+
+        assert!(result.left.start_ms >= 100);
+        assert!(result.right.end_ms <= 1_100);
+        assert!(result.left.end_ms > result.left.start_ms);
+        assert!(result.right.end_ms > result.right.start_ms);
+        assert!(result.left.end_ms <= result.right.start_ms);
     }
 }

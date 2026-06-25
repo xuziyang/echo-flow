@@ -192,6 +192,15 @@ export const useTranscriptStore = defineStore('transcript', () => {
       && (sentence.end_ms as number) > (sentence.start_ms as number)
   }
 
+  function isWordChar(char: string | undefined): boolean {
+    return Boolean(char && /[A-Za-z0-9']/.test(char))
+  }
+
+  function isInsideWord(source: string, cursorPosition: number): boolean {
+    if (cursorPosition <= 0 || cursorPosition >= source.length) return false
+    return isWordChar(source[cursorPosition - 1]) && isWordChar(source[cursorPosition])
+  }
+
   function reconcileIndicesAfterRemoval(removedIndex: number) {
     const player = usePlayerStore()
 
@@ -288,6 +297,10 @@ export const useTranscriptStore = defineStore('transcript', () => {
 
     if (!left || !right) {
       app.showSubtitleToast('Place the cursor in the middle of a sentence to split it', 'error')
+      return false
+    }
+    if (isInsideWord(source, clampedCursor)) {
+      app.showSubtitleToast('Split at a word boundary, not inside a word', 'error')
       return false
     }
 

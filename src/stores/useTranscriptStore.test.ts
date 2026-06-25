@@ -60,6 +60,20 @@ describe('useTranscriptStore', () => {
     expect(transcript.hasUnsavedChanges).toBe(false)
   })
 
+  it('does not split a sentence in the middle of a word', () => {
+    const transcript = useTranscriptStore()
+    transcript.currentAudioPath = '/tmp/current.mp3'
+    transcript.sentences = [sentence({ id: 7, en: 'Hello there.', start_ms: 100, end_ms: 1100 })]
+    transcript.enterEditMode()
+
+    expect(transcript.splitSentence(0, 2)).toBe(false)
+
+    expect(transcript.draftSentences).toHaveLength(1)
+    expect(transcript.draftSentences[0]?.en).toBe('Hello there.')
+    expect(transcript.hasUnsavedChanges).toBe(false)
+    expect(invokeMock).not.toHaveBeenCalled()
+  })
+
   it('splits a sentence at the cursor and marks both draft entries', () => {
     const transcript = useTranscriptStore()
     transcript.sentences = [sentence({ id: 7, en: 'Hello there friend.', start_ms: 100, end_ms: 1100 })]
@@ -191,7 +205,7 @@ describe('useTranscriptStore', () => {
 
   it('keeps split timestamps continuous and ordered', () => {
     const transcript = useTranscriptStore()
-    transcript.sentences = [sentence({ en: 'abcd', start_ms: 10, end_ms: 14 })]
+    transcript.sentences = [sentence({ en: 'ab cd', start_ms: 10, end_ms: 14 })]
     transcript.enterEditMode()
 
     transcript.splitSentence(0, 2)

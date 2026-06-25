@@ -2,10 +2,25 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import {
   useTranscriptStore,
+  type Sentence,
   type TranscribeDoneEvent,
   type TranscribeErrorEvent,
   type TranscribeProgressEvent,
 } from './useTranscriptStore'
+import { usePlayerStore } from './usePlayerStore'
+
+function sentence(overrides: Partial<Sentence> = {}): Sentence {
+  return {
+    id: 1,
+    en: 'Hello there.',
+    status: 'saved',
+    dirty: false,
+    issues: [],
+    start_ms: 0,
+    end_ms: 1000,
+    ...overrides,
+  }
+}
 
 describe('useTranscriptStore', () => {
   beforeEach(() => {
@@ -20,6 +35,118 @@ describe('useTranscriptStore', () => {
     expect(transcript.isEditing).toBe(false)
     expect(transcript.editingIndex).toBe(null)
     expect(transcript.draftSentences).toEqual([])
+  })
+
+  it('does not split a sentence when the cursor is at an empty edge', () => {
+    const transcript = useTranscriptStore()
+    transcript.sentences = [sentence({ en: 'Hello there.' })]
+    transcript.enterEditMode()
+
+    expect(transcript.splitSentence(0, 0)).toBe(false)
+    expect(transcript.splitSentence(0, 'Hello there.'.length)).toBe(false)
+    expect(transcript.draftSentences).toHaveLength(1)
+    expect(transcript.hasUnsavedChanges).toBe(false)
+  })
+
+  it('splits a sentence at the cursor and marks both draft entries', () => {
+    const transcript = useTranscriptStore()
+    transcript.sentences = [sentence({ id: 7, en: 'Hello there friend.', start_ms: 100, end_ms: 1100 })]
+    transcript.enterEditMode()
+
+    expect(transcript.splitSentence(0, 12)).toBe(true)
+
+    expect(transcript.draftSentences).toHaveLength(2)
+    expect(transcript.draftSentences[0]).toMatchObject({
+      id: 7,
+      en: 'Hello there',
+      status: 'changed',
+      dirty: true,
+      start_ms: 100,
+      end_ms: 732,
+    })
+    expect(transcript.draftSentences[1]).toMatchObject({
+      id: 8,
+      en: 'friend.',
+      status: 'new',
+      dirty: true,
+      start_ms: 732,
+      end_ms: 1100,
+    })
+    expect(transcript.editingIndex).toBe(1)
+    expect(transcript.hasUnsavedChanges).toBe(true)
+  })
+
+  it('keeps split timestamps continuous and ordered', () => {
+    const transcript = useTranscriptStore()
+    transcript.sentences = [sentence({ en: 'abcd', start_ms: 10, end_ms: 14 })]
+    transcript.enterEditMode()
+
+    transcript.splitSentence(0, 2)
+
+    const left = transcript.draftSentences[0]
+    const right = transcript.draftSentences[1]
+    expect(left?.start_ms).toBe(10)
+    expect(left?.end_ms).toBe(right?.start_ms)
+    expect(right?.end_ms).toBe(14)
+    expect(left?.end_ms).toBeGreaterThan(left?.start_ms ?? 0)
+    expect(right?.end_ms).toBeGreaterThan(right?.start_ms ?? 0)
+  })
+
+  it('merges a sentence with the previous draft and reconciles indices', () => {
+    const transcript = useTranscriptStore()
+    const player = usePlayerStore()
+    transcript.sentences = [
+      sentence({ id: 1, en: 'Hello', start_ms: 100, end_ms: 500 }),
+      sentence({ id: 2, en: 'there', start_ms: 520, end_ms: 900 }),
+      sentence({ id: 3, en: 'friend', start_ms: 920, end_ms: 1200 }),
+    ]
+    player.setCurrentIndex(2)
+    transcript.enterEditMode()
+
+    expect(transcript.mergeWithPrev(1)).toBe(true)
+
+    expect(transcript.draftSentences).toHaveLength(2)
+    expect(transcript.draftSentences[0]).toMatchObject({
+      en: 'Hello there',
+      status: 'editing',
+      dirty: true,
+      start_ms: 100,
+      end_ms: 900,
+    })
+    expect(transcript.editingIndex).toBe(0)
+    expect(player.currentIndex).toBe(1)
+  })
+
+  it('merges a sentence with the next draft and saves all statuses as saved', () => {
+    const transcript = useTranscriptStore()
+    transcript.sentences = [
+      sentence({ id: 1, en: 'Hello', start_ms: 100, end_ms: 500 }),
+      sentence({ id: 2, en: 'there', start_ms: 520, end_ms: 900 }),
+    ]
+    transcript.enterEditMode()
+
+    expect(transcript.mergeWithNext(0)).toBe(true)
+
+    expect(transcript.draftSentences).toHaveLength(1)
+    expect(transcript.draftSentences[0]).toMatchObject({
+      en: 'Hello there',
+      status: 'editing',
+      dirty: true,
+      start_ms: 100,
+      end_ms: 900,
+    })
+
+    transcript.saveEdits()
+
+    expect(transcript.isEditing).toBe(false)
+    expect(transcript.sentences).toHaveLength(1)
+    expect(transcript.sentences[0]).toMatchObject({
+      en: 'Hello there',
+      status: 'saved',
+      dirty: false,
+      start_ms: 100,
+      end_ms: 900,
+    })
   })
 
   it('ignores stale transcription progress and applies matching events', () => {

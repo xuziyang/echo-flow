@@ -3,6 +3,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { useAppStore } from './useAppStore'
+import { usePlayerStore } from './usePlayerStore'
 import { useSettingsStore } from './useSettingsStore'
 
 export interface Sentence {
@@ -89,14 +90,63 @@ export const useTranscriptStore = defineStore('transcript', () => {
     return { ...s, issues: [...s.issues] }
   }
 
+  function nextSentenceId(): number {
+    return sentenceIdCounter.value++
+  }
+
+  function resetSentenceIdCounter() {
+    sentenceIdCounter.value = Math.max(0, ...sentences.value.map(s => s.id)) + 1
+  }
+
+  function markSentenceDirty(sentence: Sentence, status: Sentence['status'] = 'changed') {
+    sentence.dirty = true
+    sentence.status = status
+    hasUnsavedChanges.value = true
+  }
+
+  function hasValidTimeRange(sentence: Sentence): sentence is Sentence & { start_ms: number; end_ms: number } {
+    return Number.isFinite(sentence.start_ms)
+      && Number.isFinite(sentence.end_ms)
+      && (sentence.start_ms as number) >= 0
+      && (sentence.end_ms as number) > (sentence.start_ms as number)
+  }
+
+  function reconcileIndicesAfterRemoval(removedIndex: number) {
+    const player = usePlayerStore()
+
+    if (player.currentIndex > removedIndex) {
+      player.setCurrentIndex(player.currentIndex - 1)
+    } else if (player.currentIndex >= draftSentences.value.length) {
+      player.setCurrentIndex(Math.max(0, draftSentences.value.length - 1))
+    }
+
+    if (editingIndex.value === removedIndex) {
+      editingIndex.value = null
+    } else if (editingIndex.value !== null && editingIndex.value > removedIndex) {
+      editingIndex.value--
+    }
+  }
+
+  function mergedStartMs(a: Sentence, b: Sentence): number | undefined {
+    const values = [a.start_ms, b.start_ms].filter(Number.isFinite) as number[]
+    return values.length ? Math.min(...values) : undefined
+  }
+
+  function mergedEndMs(a: Sentence, b: Sentence): number | undefined {
+    const values = [a.end_ms, b.end_ms].filter(Number.isFinite) as number[]
+    return values.length ? Math.max(...values) : undefined
+  }
+
   function enterEditMode() {
     if (sentences.value.length === 0) return
 
     isEditing.value = true
-    editingIndex.value = 0
+    resetSentenceIdCounter()
+    const player = usePlayerStore()
+    editingIndex.value = Math.max(0, Math.min(player.currentIndex, sentences.value.length - 1))
     draftSentences.value = sentences.value.map(cloneSentence)
-    if (draftSentences.value[0]) {
-      draftSentences.value[0].status = 'editing'
+    if (draftSentences.value[editingIndex.value]) {
+      draftSentences.value[editingIndex.value].status = 'editing'
     }
     hasUnsavedChanges.value = false
   }
@@ -107,6 +157,9 @@ export const useTranscriptStore = defineStore('transcript', () => {
 
   function saveEdits() {
     sentences.value = draftSentences.value.map(s => ({ ...s, status: 'saved' as const, dirty: false }))
+    const player = usePlayerStore()
+    player.setCurrentIndex(Math.max(0, Math.min(player.currentIndex, sentences.value.length - 1)))
+    resetSentenceIdCounter()
     resetEditingState()
   }
 
@@ -117,16 +170,16 @@ export const useTranscriptStore = defineStore('transcript', () => {
 
     if (editingIndex.value !== null) {
       const cur = draftSentences.value[editingIndex.value]
-      if (cur) cur.status = cur.dirty ? 'changed' : 'saved'
+      if (cur && cur.status !== 'new') cur.status = cur.dirty ? 'changed' : 'saved'
     }
     editingIndex.value = index
-    nextSentence.status = 'editing'
+    if (nextSentence.status !== 'new') nextSentence.status = 'editing'
   }
 
   function finishEditing() {
     if (editingIndex.value === null) return
     const s = draftSentences.value[editingIndex.value]
-    if (s) s.status = s.dirty ? 'changed' : 'saved'
+    if (s && s.status !== 'new') s.status = s.dirty ? 'changed' : 'saved'
     editingIndex.value = null
   }
 
@@ -134,14 +187,94 @@ export const useTranscriptStore = defineStore('transcript', () => {
     const s = draftSentences.value[index]
     if (!s) return
     s.en = value
-    s.dirty = true
+    markSentenceDirty(s, s.status === 'new' ? 'new' : 'editing')
+  }
+
+  function splitSentence(index: number, cursorPosition: number): boolean {
+    if (!isEditing.value) return false
+
+    const sentence = draftSentences.value[index]
+    if (!sentence) return false
+
+    const source = sentence.en
+    const clampedCursor = Math.max(0, Math.min(cursorPosition, source.length))
+    const left = source.slice(0, clampedCursor).trim()
+    const right = source.slice(clampedCursor).trim()
+
+    if (!left || !right) {
+      app.showSubtitleToast('Place the cursor in the middle of a sentence to split it', 'error')
+      return false
+    }
+
+    const newSentence: Sentence = {
+      id: nextSentenceId(),
+      en: right,
+      status: 'new',
+      dirty: true,
+      issues: [],
+      start_ms: undefined,
+      end_ms: undefined,
+    }
+
+    if (hasValidTimeRange(sentence) && sentence.end_ms - sentence.start_ms > 1) {
+      const duration = sentence.end_ms - sentence.start_ms
+      const ratio = source.length > 0 ? clampedCursor / source.length : 0.5
+      const splitMs = Math.max(
+        sentence.start_ms + 1,
+        Math.min(sentence.end_ms - 1, Math.round(sentence.start_ms + duration * ratio)),
+      )
+      newSentence.start_ms = splitMs
+      newSentence.end_ms = sentence.end_ms
+      sentence.end_ms = splitMs
+    }
+
+    sentence.en = left
+    markSentenceDirty(sentence)
+    draftSentences.value.splice(index + 1, 0, newSentence)
     hasUnsavedChanges.value = true
-    s.status = 'editing'
+    startEditing(index + 1)
+    app.showSubtitleToast('Sentence split')
+    return true
+  }
+
+  function mergeWithPrev(index: number): boolean {
+    if (!isEditing.value || index <= 0) return false
+
+    const prev = draftSentences.value[index - 1]
+    const current = draftSentences.value[index]
+    if (!prev || !current) return false
+
+    prev.en = `${prev.en.trim()} ${current.en.trim()}`.trim()
+    prev.start_ms = mergedStartMs(prev, current)
+    prev.end_ms = mergedEndMs(prev, current)
+    markSentenceDirty(prev)
+    draftSentences.value.splice(index, 1)
+    reconcileIndicesAfterRemoval(index)
+    startEditing(index - 1)
+    app.showSubtitleToast('Merged with previous sentence')
+    return true
+  }
+
+  function mergeWithNext(index: number): boolean {
+    if (!isEditing.value || index >= draftSentences.value.length - 1) return false
+
+    const current = draftSentences.value[index]
+    const next = draftSentences.value[index + 1]
+    if (!current || !next) return false
+
+    current.en = `${current.en.trim()} ${next.en.trim()}`.trim()
+    current.start_ms = mergedStartMs(current, next)
+    current.end_ms = mergedEndMs(current, next)
+    markSentenceDirty(current)
+    draftSentences.value.splice(index + 1, 1)
+    reconcileIndicesAfterRemoval(index + 1)
+    startEditing(index)
+    app.showSubtitleToast('Merged with next sentence')
+    return true
   }
 
   async function loadSubtitles(path: string): Promise<void> {
     const entries = await invoke<SubtitleEntry[]>('load_subtitle_file', { path })
-    sentenceIdCounter.value = entries.length + 1
     sentences.value = entries.map(e => ({
       id: e.id,
       en: e.en,
@@ -151,6 +284,7 @@ export const useTranscriptStore = defineStore('transcript', () => {
       start_ms: e.start_ms,
       end_ms: e.end_ms,
     }))
+    resetSentenceIdCounter()
     resetEditingState()
   }
 
@@ -239,6 +373,7 @@ export const useTranscriptStore = defineStore('transcript', () => {
       firstSentence: sentences.value[0]?.en ?? null,
     })
     sentenceIdCounter.value = sentences.value.length + 1
+    resetSentenceIdCounter()
     isTranscribing.value = false
     transcribeProgress.value = 100
     transcribeStatus.value = 'Subtitles ready'
@@ -260,7 +395,7 @@ export const useTranscriptStore = defineStore('transcript', () => {
     isTranscribing, transcribeProgress, transcribeStatus, transcribeError,
     sentenceIdCounter, currentAudioPath, activeTranscribeJobId, displaySentences,
     cloneSentence, enterEditMode, cancelEdits, saveEdits,
-    startEditing, finishEditing, updateDraft,
+    startEditing, finishEditing, updateDraft, splitSentence, mergeWithPrev, mergeWithNext,
     loadSubtitles, saveSubtitles, startTranscribe,
     isCurrentTranscribeTarget, applyTranscribeProgress, applyTranscribeDone, applyTranscribeError,
   }

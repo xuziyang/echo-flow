@@ -27,7 +27,7 @@ const itemClass = computed(() => {
   if (isActive.value) {
     return app.theme === 'dark'
       ? 'bg-brand-900/20 border-brand-500/30 opacity-100 shadow-md shadow-brand-500/10'
-      : 'bg-gray-100 border-transparent opacity-100 shadow-sm shadow-black/5'
+      : 'bg-white border-zinc-300 opacity-100 shadow-sm shadow-black/10 ring-1 ring-black/[0.04]'
   }
 
   return app.theme === 'dark'
@@ -86,7 +86,7 @@ watch(() => [transcript.isEditing, transcript.editingIndex] as const, ([isEditin
       <p class="text-sm leading-snug transition-colors group-hover:font-medium"
          v-if="!transcript.isEditing"
          :class="isActive
-            ? (app.theme === 'dark' ? 'text-white font-medium' : 'text-black font-medium')
+            ? (app.theme === 'dark' ? 'text-white font-medium' : 'text-slate-950 font-semibold')
             : (app.theme === 'dark' ? 'text-gray-400' : 'text-gray-500')">
         {{ item.en }}
       </p>

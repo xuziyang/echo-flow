@@ -1,4 +1,6 @@
 // src/audio.rs — Audio playback, file metadata, subtitle loading/saving
+use cpal::traits::{DeviceTrait, HostTrait};
+use cpal::{Device, Host};
 use log::info;
 use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink, Source};
 use serde::{Deserialize, Serialize};
@@ -49,6 +51,13 @@ pub struct WaveformPreviewErrorEvent {
     pub error: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AudioOutputDevice {
+    #[serde(rename = "deviceId")]
+    pub device_id: String,
+    pub label: String,
+}
+
 // ---------------------------------------------------------------------------
 // 播放器
 // ---------------------------------------------------------------------------
@@ -78,6 +87,7 @@ pub struct AudioPlayer {
     pub samples: Arc<Mutex<Vec<f32>>>,
     pub sample_rate: Arc<Mutex<u32>>,
     pub channels: Arc<Mutex<u16>>,
+    current_output_device_id: Option<String>,
 }
 
 impl AudioPlayer {
@@ -94,7 +104,48 @@ impl AudioPlayer {
             samples: Arc::new(Mutex::new(Vec::new())),
             sample_rate: Arc::new(Mutex::new(44100)),
             channels: Arc::new(Mutex::new(2)),
+            current_output_device_id: None,
         })
+    }
+
+    fn resolve_output_device(host: &Host, device_id: Option<&str>) -> Result<Device, String> {
+        if let Some(device_id) = device_id.map(str::trim).filter(|id| !id.is_empty()) {
+            let mut devices = host
+                .output_devices()
+                .map_err(|e| format!("无法列出播放设备: {}", e))?;
+
+            return devices
+                .find(|device| device.name().is_ok_and(|name| name == device_id))
+                .ok_or_else(|| format!("找不到播放设备: {}", device_id));
+        }
+
+        host.default_output_device()
+            .ok_or_else(|| "没有可用的播放设备".to_string())
+    }
+
+    fn ensure_output_device(&mut self, device_id: Option<&str>) -> Result<(), String> {
+        let requested_device_id = device_id
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .map(ToOwned::to_owned);
+
+        if self.current_output_device_id == requested_device_id {
+            return Ok(());
+        }
+
+        self.stop_internal();
+
+        let host = cpal::default_host();
+        let device = Self::resolve_output_device(&host, requested_device_id.as_deref())?;
+        let (stream, stream_handle) = OutputStream::try_from_device(&device)
+            .map_err(|e| format!("无法初始化音频输出: {}", e))?;
+
+        info!("Using output device: {}", device.name().unwrap_or_default());
+
+        self._stream = stream;
+        self.stream_handle = stream_handle;
+        self.current_output_device_id = requested_device_id;
+        Ok(())
     }
 
     /// 仅加载音频（不播放），返回波形数据供前端显示
@@ -168,9 +219,14 @@ impl AudioPlayer {
     }
 
     /// 加载并开始播放
-    pub fn start(&mut self, path: &str) -> Result<PlaybackState, String> {
+    pub fn start(
+        &mut self,
+        path: &str,
+        output_device_id: Option<&str>,
+    ) -> Result<PlaybackState, String> {
         // 停止当前播放
         self.stop_internal();
+        self.ensure_output_device(output_device_id)?;
 
         let file = File::open(path).map_err(|e| format!("无法打开文件: {}", e))?;
         let source =
@@ -260,7 +316,7 @@ impl AudioPlayer {
         self.build_state()
     }
 
-    pub fn resume(&mut self) -> Result<PlaybackState, String> {
+    pub fn resume(&mut self, output_device_id: Option<&str>) -> Result<PlaybackState, String> {
         self.normalize_finished_state();
 
         if let PlayerState::Paused {
@@ -268,14 +324,19 @@ impl AudioPlayer {
             duration_ms,
         } = &self.state
         {
+            let position_ms = *position_ms;
+            let duration_ms = *duration_ms;
+
             if self.current_path.is_empty() {
                 return Err("没有可恢复的音频文件".to_string());
             }
 
-            let resume_position_ms = if *position_ms >= *duration_ms {
+            self.ensure_output_device(output_device_id)?;
+
+            let resume_position_ms = if position_ms >= duration_ms {
                 0
             } else {
-                *position_ms
+                position_ms
             };
 
             // rodio Sink 不支持 seek，先停止当前 sink
@@ -301,7 +362,7 @@ impl AudioPlayer {
             self.state = PlayerState::Playing {
                 start_instant: Instant::now(),
                 offset_ms: resume_position_ms,
-                duration_ms: *duration_ms,
+                duration_ms,
             };
         }
 
@@ -320,7 +381,11 @@ impl AudioPlayer {
         }
     }
 
-    pub fn seek(&mut self, position_ms: u64) -> Result<PlaybackState, String> {
+    pub fn seek(
+        &mut self,
+        position_ms: u64,
+        output_device_id: Option<&str>,
+    ) -> Result<PlaybackState, String> {
         let duration_ms = match &self.state {
             PlayerState::Playing { duration_ms, .. } => *duration_ms,
             PlayerState::Paused { duration_ms, .. } => *duration_ms,
@@ -332,6 +397,8 @@ impl AudioPlayer {
         if self.current_path.is_empty() {
             return Err("没有已加载的音频，无法跳转".to_string());
         }
+
+        self.ensure_output_device(output_device_id)?;
 
         if let Some(sink) = self.sink.take() {
             sink.stop();
@@ -617,12 +684,32 @@ pub fn load_waveform_preview(window: tauri::Window, path: String) -> Result<(), 
     Ok(())
 }
 
+#[tauri::command]
+pub fn list_playback_output_devices() -> Result<Vec<AudioOutputDevice>, String> {
+    let host = cpal::default_host();
+    let devices = host
+        .output_devices()
+        .map_err(|e| format!("无法列出播放设备: {}", e))?;
+
+    Ok(devices
+        .filter_map(|device| device.name().ok())
+        .map(|name| AudioOutputDevice {
+            device_id: name.clone(),
+            label: name,
+        })
+        .collect())
+}
+
 /// 开始播放音频
 #[tauri::command]
-pub fn start_playback(app: tauri::AppHandle, path: String) -> Result<PlaybackState, String> {
+pub fn start_playback(
+    app: tauri::AppHandle,
+    path: String,
+    output_device_id: Option<String>,
+) -> Result<PlaybackState, String> {
     PLAYER.with(|p| {
         let mut player = p.borrow_mut();
-        player.start(&path)
+        player.start(&path, output_device_id.as_deref())
     })?;
     emit_playback_state(&app);
     start_position_emitting(app);
@@ -640,8 +727,11 @@ pub fn pause_playback(app: tauri::AppHandle) -> PlaybackState {
 
 /// 继续播放
 #[tauri::command]
-pub fn resume_playback(app: tauri::AppHandle) -> Result<PlaybackState, String> {
-    PLAYER.with(|p| p.borrow_mut().resume())?;
+pub fn resume_playback(
+    app: tauri::AppHandle,
+    output_device_id: Option<String>,
+) -> Result<PlaybackState, String> {
+    PLAYER.with(|p| p.borrow_mut().resume(output_device_id.as_deref()))?;
     emit_playback_state(&app);
     start_position_emitting(app);
     PLAYER.with(|p| Ok(p.borrow_mut().get_state()))
@@ -658,8 +748,15 @@ pub fn stop_playback(app: tauri::AppHandle) -> PlaybackState {
 
 /// 跳转播放位置
 #[tauri::command]
-pub fn seek_playback(app: tauri::AppHandle, position_ms: u64) -> Result<PlaybackState, String> {
-    PLAYER.with(|p| p.borrow_mut().seek(position_ms))?;
+pub fn seek_playback(
+    app: tauri::AppHandle,
+    position_ms: u64,
+    output_device_id: Option<String>,
+) -> Result<PlaybackState, String> {
+    PLAYER.with(|p| {
+        p.borrow_mut()
+            .seek(position_ms, output_device_id.as_deref())
+    })?;
     emit_playback_state(&app);
     PLAYER.with(|p| Ok(p.borrow_mut().get_state()))
 }

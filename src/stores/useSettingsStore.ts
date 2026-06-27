@@ -4,6 +4,11 @@ import { ref, watch } from 'vue'
 
 export type WhisperModelType = 'whisper-tiny' | 'whisper-base' | 'whisper-small' | 'whisper-medium'
 
+export interface AudioDeviceOption {
+  deviceId: string
+  label: string
+}
+
 interface PersistedSettings {
   selectedInputId?: string
   selectedOutputId?: string
@@ -58,8 +63,8 @@ function savePersistedSettings(settings: PersistedSettings) {
 
 export const useSettingsStore = defineStore('settings', () => {
   const persistedSettings = loadPersistedSettings()
-  const audioInputDevices = ref<MediaDeviceInfo[]>([])
-  const audioOutputDevices = ref<MediaDeviceInfo[]>([])
+  const audioInputDevices = ref<AudioDeviceOption[]>([])
+  const audioOutputDevices = ref<AudioDeviceOption[]>([])
   const selectedInputId = ref(persistedSettings.selectedInputId ?? '')
   const selectedOutputId = ref(persistedSettings.selectedOutputId ?? '')
   const modelDirectory = ref(persistedSettings.modelDirectory ?? '')

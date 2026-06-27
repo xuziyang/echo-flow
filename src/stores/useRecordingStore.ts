@@ -4,6 +4,7 @@ import { computed, ref, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { useAppStore } from './useAppStore'
 import { usePlayerStore } from './usePlayerStore'
+import { useSettingsStore } from './useSettingsStore'
 import { useTranscriptStore } from './useTranscriptStore'
 
 interface RecordingResult {
@@ -33,6 +34,7 @@ interface UserRecordingPlaybackOptions {
 export const useRecordingStore = defineStore('recording', () => {
   const app = useAppStore()
   const player = usePlayerStore()
+  const settings = useSettingsStore()
   const transcript = useTranscriptStore()
   const isRecording = ref(false)
   const userAudioUrl = ref<string | null>(null)
@@ -106,7 +108,9 @@ export const useRecordingStore = defineStore('recording', () => {
     try {
       await stopPlayback()
       await player.clearSentenceSegment({ pausePlayback: true })
-      await invoke('start_recording')
+      await invoke('start_recording', {
+        deviceId: settings.selectedInputId || null,
+      })
       recordingSentenceIndex = player.currentIndex
       userWaveformSamples.value = []
       startWaveformPolling()

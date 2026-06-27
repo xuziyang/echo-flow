@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { usePlayerStore, type PlaybackState } from './usePlayerStore'
+import { useSettingsStore } from './useSettingsStore'
 
 const invokeMock = vi.fn()
 
@@ -80,6 +81,30 @@ describe('usePlayerStore', () => {
     expect(player.positionMs).toBe(3000)
   })
 
+  it('starts playback with the selected output device', async () => {
+    const settings = useSettingsStore()
+    settings.selectedOutputId = 'Studio Speakers'
+
+    const player = usePlayerStore()
+    const state: PlaybackState = {
+      path: '/tmp/audio.mp3',
+      is_playing: true,
+      position_ms: 0,
+      duration_ms: 5000,
+      volume: 0.8,
+      waveform_samples: [],
+    }
+    invokeMock.mockResolvedValue(state)
+
+    await player.startPlayback('/tmp/audio.mp3')
+
+    expect(invokeMock).toHaveBeenCalledWith('start_playback', {
+      path: '/tmp/audio.mp3',
+      outputDeviceId: 'Studio Speakers',
+    })
+    expect(player.isPlaying).toBe(true)
+  })
+
   it('does not start sentence playback when timing data is missing', async () => {
     const player = usePlayerStore()
     player.currentPath = '/tmp/audio.mp3'
@@ -143,7 +168,10 @@ describe('usePlayerStore', () => {
     await vi.advanceTimersByTimeAsync(200)
     await expect(playbackPromise).resolves.toBe(true)
 
-    expect(invokeMock).toHaveBeenCalledWith('seek_playback', { positionMs: 1200 })
+    expect(invokeMock).toHaveBeenCalledWith('seek_playback', {
+      positionMs: 1200,
+      outputDeviceId: null,
+    })
     expect(invokeMock).toHaveBeenCalledWith('pause_playback')
     expect(player.activeSegmentEndMs).toBe(null)
     expect(player.isPlaying).toBe(false)

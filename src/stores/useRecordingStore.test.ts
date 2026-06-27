@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { usePlayerStore } from './usePlayerStore'
 import { useRecordingStore } from './useRecordingStore'
+import { useSettingsStore } from './useSettingsStore'
 import { useTranscriptStore } from './useTranscriptStore'
 
 const invokeMock = vi.fn()
@@ -227,11 +228,31 @@ describe('useRecordingStore', () => {
     await recording.toggleRecording()
     expect(recording.activeLoopMode).toBe(null)
     expect(recording.isRecording).toBe(true)
-    expect(invokeMock).toHaveBeenCalledWith('start_recording')
+    expect(invokeMock).toHaveBeenCalledWith('start_recording', { deviceId: null })
 
     firstPlayback.resolve(true)
     await loopPromise
     expect(player.playSentenceSegment).toHaveBeenCalledTimes(1)
+  })
+
+  it('starts recording with the selected input device', async () => {
+    seedCurrentSentence()
+    invokeMock.mockResolvedValue(undefined)
+
+    const player = usePlayerStore()
+    player.clearSentenceSegment = vi.fn().mockResolvedValue(undefined)
+
+    const settings = useSettingsStore()
+    settings.selectedInputId = 'Studio Microphone'
+
+    const recording = useRecordingStore()
+
+    await recording.toggleRecording()
+
+    expect(invokeMock).toHaveBeenCalledWith('start_recording', {
+      deviceId: 'Studio Microphone',
+    })
+    expect(recording.isRecording).toBe(true)
   })
 
   it('does not enter loop playback without required inputs', async () => {
@@ -289,7 +310,7 @@ describe('useRecordingStore', () => {
     await recording.playOriginal()
 
     expect(player.playSentenceSegment).toHaveBeenCalledWith(500, 1500)
-    expect(invokeMock).toHaveBeenCalledWith('start_recording')
+    expect(invokeMock).toHaveBeenCalledWith('start_recording', { deviceId: null })
     expect(recording.isRecording).toBe(true)
   })
 
@@ -303,7 +324,7 @@ describe('useRecordingStore', () => {
 
     await recording.playOriginal()
 
-    expect(invokeMock).not.toHaveBeenCalledWith('start_recording')
+    expect(invokeMock).not.toHaveBeenCalledWith('start_recording', expect.anything())
     expect(recording.isRecording).toBe(false)
   })
 
@@ -499,7 +520,7 @@ describe('useRecordingStore', () => {
     await flushPromises()
 
     expect(recording.activeLoopMode).toBe('original')
-    expect(invokeMock).not.toHaveBeenCalledWith('start_recording')
+    expect(invokeMock).not.toHaveBeenCalledWith('start_recording', expect.anything())
 
     await recording.playOriginal()
     firstPlayback.resolve(true)

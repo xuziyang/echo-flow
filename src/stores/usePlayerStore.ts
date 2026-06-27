@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { useAppStore } from './useAppStore'
+import { useSettingsStore } from './useSettingsStore'
 
 export interface PlaybackState {
   path: string
@@ -14,6 +15,7 @@ export interface PlaybackState {
 
 export const usePlayerStore = defineStore('player', () => {
   const app = useAppStore()
+  const settings = useSettingsStore()
   const isPlaying = ref(false)
   const isLooping = ref(false)
   const listeningIndex = ref(0)
@@ -86,7 +88,10 @@ export const usePlayerStore = defineStore('player', () => {
 
   async function startPlayback(path: string) {
     try {
-      const state = await invoke<PlaybackState>('start_playback', { path })
+      const state = await invoke<PlaybackState>('start_playback', {
+        path,
+        outputDeviceId: settings.selectedOutputId || null,
+      })
       applyPlaybackState(state)
     } catch (error) {
       notifyPlaybackError(error)
@@ -100,7 +105,9 @@ export const usePlayerStore = defineStore('player', () => {
         const state = await invoke<PlaybackState>('pause_playback')
         applyPlaybackState(state, { includeWaveform: false })
       } else {
-        const state = await invoke<PlaybackState>('resume_playback')
+        const state = await invoke<PlaybackState>('resume_playback', {
+          outputDeviceId: settings.selectedOutputId || null,
+        })
         applyPlaybackState(state, { includeWaveform: false })
       }
     } catch (error) {
@@ -121,7 +128,10 @@ export const usePlayerStore = defineStore('player', () => {
   async function seekTo(ms: number) {
     seeking.value = true
     try {
-      const state = await invoke<PlaybackState>('seek_playback', { positionMs: ms })
+      const state = await invoke<PlaybackState>('seek_playback', {
+        positionMs: ms,
+        outputDeviceId: settings.selectedOutputId || null,
+      })
       applyPlaybackState(state, { includeWaveform: false })
     } catch (error) {
       notifyPlaybackError(error)
@@ -167,7 +177,10 @@ export const usePlayerStore = defineStore('player', () => {
 
     seeking.value = true
     try {
-      const state = await invoke<PlaybackState>('seek_playback', { positionMs: startMs as number })
+      const state = await invoke<PlaybackState>('seek_playback', {
+        positionMs: startMs as number,
+        outputDeviceId: settings.selectedOutputId || null,
+      })
       if (playbackToken !== segmentPlaybackToken) {
         return false
       }

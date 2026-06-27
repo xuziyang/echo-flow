@@ -1,5 +1,5 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::{SampleFormat, Stream};
+use cpal::{Device, Host, SampleFormat, Stream};
 use log::{error, info};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -21,14 +21,52 @@ pub fn is_recording() -> bool {
     IS_RECORDING.load(Ordering::SeqCst)
 }
 
+#[derive(serde::Serialize)]
+pub struct RecordingInputDevice {
+    #[serde(rename = "deviceId")]
+    pub device_id: String,
+    pub label: String,
+}
+
+#[tauri::command]
+pub fn list_recording_input_devices() -> Result<Vec<RecordingInputDevice>, String> {
+    let host = cpal::default_host();
+    let devices = host
+        .input_devices()
+        .map_err(|e| format!("Failed to list input devices: {}", e))?;
+
+    Ok(devices
+        .filter_map(|device| device.name().ok())
+        .map(|name| RecordingInputDevice {
+            device_id: name.clone(),
+            label: name,
+        })
+        .collect())
+}
+
 fn drop_recording_stream() {
     RECORDING_STREAM.with(|cell| {
         cell.borrow_mut().take();
     });
 }
 
+fn resolve_input_device(host: &Host, device_id: Option<&str>) -> Result<Device, String> {
+    if let Some(device_id) = device_id.map(str::trim).filter(|id| !id.is_empty()) {
+        let mut devices = host
+            .input_devices()
+            .map_err(|e| format!("Failed to list input devices: {}", e))?;
+
+        return devices
+            .find(|device| device.name().is_ok_and(|name| name == device_id))
+            .ok_or_else(|| format!("Input device not found: {}", device_id));
+    }
+
+    host.default_input_device()
+        .ok_or_else(|| "No input device available".to_string())
+}
+
 #[tauri::command]
-pub fn start_recording() -> Result<(), String> {
+pub fn start_recording(device_id: Option<String>) -> Result<(), String> {
     if IS_RECORDING.load(Ordering::SeqCst) {
         return Err("Already recording".to_string());
     }
@@ -36,9 +74,7 @@ pub fn start_recording() -> Result<(), String> {
     drop_recording_stream();
 
     let host = cpal::default_host();
-    let device = host
-        .default_input_device()
-        .ok_or_else(|| "No input device available".to_string())?;
+    let device = resolve_input_device(&host, device_id.as_deref())?;
 
     info!("Using input device: {}", device.name().unwrap_or_default());
 

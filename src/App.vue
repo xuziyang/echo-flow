@@ -20,7 +20,10 @@ useDownloadEvents()
 
 <template>
   <div class="h-screen w-screen overflow-hidden flex flex-col select-none transition-colors duration-300"
-       :class="app.theme === 'dark' ? 'text-dark-text bg-dark-bg' : 'text-light-text bg-light-bg'">
+       :class="[
+         app.theme === 'dark' ? 'text-dark-text bg-dark-bg' : 'text-light-text bg-light-bg',
+         app.theme
+       ]">
     <TitleBar />
     <div class="flex-1 flex overflow-hidden relative w-full">
       <AppSidebar />

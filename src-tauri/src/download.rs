@@ -140,7 +140,10 @@ fn get_model_dir(model_dir: Option<String>) -> PathBuf {
                 PathBuf::from(dir)
             }
         }
-        _ => PathBuf::from(format!("{}/.cache/echo-flow/models", home)),
+        _ => PathBuf::from(&home)
+            .join(".cache")
+            .join("echo-flow")
+            .join("models"),
     }
 }
 

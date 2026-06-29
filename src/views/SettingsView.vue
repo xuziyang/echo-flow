@@ -26,6 +26,7 @@ const settings = useSettingsStore()
 const modelDownload = useModelDownloadStore()
 const activeSection = ref<SettingsSection>('general')
 const appCacheDirectory = ref('')
+const resolvedModelDirectory = ref('')
 
 const sections: Array<{
   id: SettingsSection
@@ -120,6 +121,16 @@ async function loadCacheDirectories() {
   }
 }
 
+async function refreshResolvedModelDirectory() {
+  try {
+    resolvedModelDirectory.value = await invoke<string>('ensure_model_dir', {
+      modelDir: settings.modelDirectory || null,
+    })
+  } catch (error) {
+    app.showSubtitleToast(typeof error === 'string' ? error : String(error), 'error')
+  }
+}
+
 async function loadAudioInputDevices() {
   try {
     const devices = await invoke<AudioDeviceOption[]>('list_recording_input_devices')
@@ -166,6 +177,7 @@ watch(() => settings.modelDirectory, () => {
   if (modelDirectoryCheckTimer) clearTimeout(modelDirectoryCheckTimer)
   modelDirectoryCheckTimer = setTimeout(() => {
     void modelDownload.checkModels()
+    void refreshResolvedModelDirectory()
     modelDirectoryCheckTimer = null
   }, 300)
 })
@@ -173,6 +185,7 @@ watch(() => settings.modelDirectory, () => {
 onMounted(() => {
   void modelDownload.checkModels()
   void loadCacheDirectories()
+  void refreshResolvedModelDirectory()
   void loadAudioInputDevices()
   void loadAudioOutputDevices()
   window.addEventListener('keydown', onKeydown, { capture: true })
@@ -296,7 +309,7 @@ onUnmounted(() => {
                     class="mt-1 truncate text-xs"
                     :class="app.theme === 'dark' ? 'text-dark-subtext' : 'text-slate-500'"
                   >
-                    {{ settings.modelDirectory || 'Default folder' }}
+                    {{ resolvedModelDirectory || settings.modelDirectory || 'Loading...' }}
                   </p>
                 </div>
                 <button

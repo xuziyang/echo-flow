@@ -55,14 +55,12 @@ pub fn run() {
         ])
         .setup(|app| {
             info!("echo-flow starting...");
-            let mut builder = tauri::WebviewWindowBuilder::from_config(
+            let builder = tauri::WebviewWindowBuilder::from_config(
                 app.handle(),
                 &app.config().app.windows[0],
             )?;
             #[cfg(target_os = "macos")]
-            {
-                builder = builder.title_bar_style(tauri::TitleBarStyle::Overlay);
-            }
+            let builder = builder.title_bar_style(tauri::TitleBarStyle::Overlay);
             builder.build()?;
             Ok(())
         })

@@ -44,8 +44,10 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="flex-shrink-0 flex items-center justify-between px-5 select-none transition-colors duration-300"
-       :class="app.theme === 'dark' ? 'text-gray-400' : 'text-gray-500'"
+  <div class="flex-shrink-0 flex items-center justify-between px-5 select-none transition-colors duration-300 border-b"
+       :class="[
+         app.theme === 'dark' ? 'text-gray-400 border-gray-800/50' : 'text-gray-500 border-gray-200'
+       ]"
        style="padding-top: env(safe-area-inset-top); height: calc(32px + env(safe-area-inset-top))"
        @mousedown="startDrag">
     <!-- Left: app branding / drag area -->

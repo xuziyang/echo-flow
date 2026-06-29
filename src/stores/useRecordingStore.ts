@@ -324,6 +324,47 @@ export const useRecordingStore = defineStore('recording', () => {
     }
   }
 
+  function isRecordingKeyForAudio(key: string, audioPath: string) {
+    return key.startsWith(`${audioPath}::`)
+  }
+
+  async function clearRecordingsForAudio(audioPath: string): Promise<boolean> {
+    if (!audioPath) return true
+    if (isRecording.value) {
+      app.showSubtitleToast('请先停止录音，再重新生成字幕', 'error')
+      return false
+    }
+
+    await stopPlayback()
+
+    try {
+      await invoke('delete_recordings_for_audio', { audioPath })
+    } catch (error) {
+      app.showSubtitleToast(typeof error === 'string' ? error : String(error), 'error')
+      return false
+    }
+
+    const nextRecordings: Record<string, StoredRecording> = {}
+    for (const [key, recording] of Object.entries(recordingsBySentence.value)) {
+      if (isRecordingKeyForAudio(key, audioPath)) {
+        URL.revokeObjectURL(recording.audioUrl)
+      } else {
+        nextRecordings[key] = recording
+      }
+    }
+    recordingsBySentence.value = nextRecordings
+
+    if (player.currentPath === audioPath) {
+      applyStoredRecording(null)
+    }
+
+    return true
+  }
+
+  async function clearCurrentAudioRecordings(): Promise<boolean> {
+    return await clearRecordingsForAudio(player.currentPath)
+  }
+
   function sanitizePathSegment(segment: string) {
     const sanitized = segment
       .trim()
@@ -689,5 +730,7 @@ export const useRecordingStore = defineStore('recording', () => {
     toggleComparisonLoop,
     saveRecording,
     stopPlayback,
+    clearRecordingsForAudio,
+    clearCurrentAudioRecordings,
   }
 })

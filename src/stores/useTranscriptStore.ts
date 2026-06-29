@@ -84,6 +84,11 @@ interface ApplicableSplitAlignment {
   right: Sentence
 }
 
+interface StartTranscribeOptions {
+  forceRegenerate?: boolean
+  preserveExisting?: boolean
+}
+
 export const useTranscriptStore = defineStore('transcript', () => {
   const app = useAppStore()
   const sentences = ref<Sentence[]>([])
@@ -493,7 +498,11 @@ export const useTranscriptStore = defineStore('transcript', () => {
   }
 
   /** 开始转写音频文件（自动调用） */
-  async function startTranscribe(audioPath: string, modelPath?: string): Promise<void> {
+  async function startTranscribe(
+    audioPath: string,
+    modelPath?: string,
+    options: StartTranscribeOptions = {},
+  ): Promise<void> {
     const settings = useSettingsStore()
     const jobId = nextTranscribeJobId++
     console.info('[transcribe] start', { jobId, audioPath })
@@ -506,7 +515,9 @@ export const useTranscriptStore = defineStore('transcript', () => {
     transcribeProgress.value = 0
     transcribeStatus.value = 'Preparing transcription'
     transcribeError.value = null
-    sentences.value = []
+    if (!options.preserveExisting) {
+      sentences.value = []
+    }
     resetEditingState()
 
     try {
@@ -516,6 +527,7 @@ export const useTranscriptStore = defineStore('transcript', () => {
         whisperModel: settings.selectedWhisperModel,
         modelDir: settings.modelDirectory || null,
         jobId,
+        forceRegenerate: options.forceRegenerate ?? false,
       })
     } catch (err) {
       if (activeTranscribeJobId.value === jobId && currentAudioPath.value === audioPath) {
@@ -527,6 +539,27 @@ export const useTranscriptStore = defineStore('transcript', () => {
         app.showSubtitleToast(message, 'error')
       }
     }
+  }
+
+  async function regenerateSubtitles(): Promise<void> {
+    if (isTranscribing.value) return
+
+    const audioPath = currentAudioPath.value
+    if (!audioPath) {
+      app.showSubtitleToast('Load an audio file before regenerating subtitles', 'error')
+      return
+    }
+
+    resetEditingState()
+    const { useRecordingStore } = await import('./useRecordingStore')
+    const recording = useRecordingStore()
+    const recordingsCleared = await recording.clearRecordingsForAudio(audioPath)
+    if (!recordingsCleared) return
+
+    await startTranscribe(audioPath, currentModelPath.value ?? undefined, {
+      forceRegenerate: true,
+      preserveExisting: true,
+    })
   }
 
   function isCurrentTranscribeTarget(jobId: number, audioPath: string): boolean {
@@ -589,7 +622,7 @@ export const useTranscriptStore = defineStore('transcript', () => {
     cloneSentence, enterEditMode, cancelEdits, saveEdits,
     startEditing, finishEditing, updateDraft, splitSentence, alignSplitSentence,
     mergeWithPrev, mergeWithNext, isSentenceAligning,
-    loadSubtitles, saveSubtitles, startTranscribe,
+    loadSubtitles, saveSubtitles, startTranscribe, regenerateSubtitles,
     isCurrentTranscribeTarget, applyTranscribeProgress, applyTranscribeDone, applyTranscribeError,
   }
 })

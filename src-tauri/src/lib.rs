@@ -43,6 +43,7 @@ pub fn run() {
             transcribe::get_app_cache_dir,
             transcribe::get_transcription_cache_dir,
             transcribe::get_recording_cache_dir,
+            transcribe::delete_recordings_for_audio,
             record::is_recording,
             record::list_recording_input_devices,
             record::start_recording,

@@ -26,6 +26,12 @@ const isBusy = computed(() => (
   player.seeking
   || recording.isRecording
   || Boolean(recording.activePlaybackMode)
+  || Boolean(recording.activeLoopMode)
+))
+const canRegenerateSubtitles = computed(() => (
+  Boolean(transcript.currentAudioPath)
+  && !isBusy.value
+  && !transcript.isTranscribing
 ))
 
 function setItemRef(el: Element | ComponentPublicInstance | null, index: number) {
@@ -42,6 +48,17 @@ function selectSentence(index: number, sentence: Sentence) {
   if (app.mode === 'listening') {
     void player.seekTo(sentence.start_ms ?? 0)
   }
+}
+
+function confirmRegenerateSubtitles() {
+  if (!canRegenerateSubtitles.value) return
+
+  const confirmed = window.confirm(
+    '重新生成字幕会删除当前音频的已保存录音，并覆盖当前字幕、转写缓存和同名 SRT 文件；未保存的字幕编辑也会被放弃。确定继续吗？',
+  )
+  if (!confirmed) return
+
+  void transcript.regenerateSubtitles()
 }
 
 watch(() => player.positionMs, (positionMs) => {
@@ -78,6 +95,18 @@ watch(() => transcript.editingIndex, async (index) => {
               :class="app.theme === 'dark' ? 'text-brand-400' : 'text-black'">
           {{ counterLabel }}
         </span>
+        <button
+          type="button"
+          class="h-6 w-6 rounded-md flex items-center justify-center transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          :class="app.theme === 'dark'
+            ? 'text-gray-300 hover:text-white hover:bg-white/10'
+            : 'text-gray-600 hover:text-black hover:bg-black/[0.06]'"
+          :disabled="!canRegenerateSubtitles"
+          title="Regenerate subtitles"
+          @click="confirmRegenerateSubtitles"
+        >
+          <Icon name="rotate-left" :size="13" />
+        </button>
         <template v-if="transcript.isEditing">
           <button
             type="button"

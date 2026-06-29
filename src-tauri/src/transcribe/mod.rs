@@ -210,6 +210,7 @@ pub fn transcribe_audio(
     whisper_model: Option<String>,
     model_dir: Option<String>,
     job_id: Option<u64>,
+    force_regenerate: Option<bool>,
 ) -> Result<u64, String> {
     let (whisper_model, vad_model, align_model, align_vocab) = resolve_transcription_model_paths(
         model_path.as_deref(),
@@ -306,7 +307,7 @@ pub fn transcribe_audio(
         );
         let cache_paths = cache::cache_paths(&app_cache_dir, &cache_key);
 
-        if cache_paths.subtitles_srt.exists() {
+        if should_read_cached_transcription(force_regenerate, cache_paths.subtitles_srt.exists()) {
             match cache::read_cached_segments(&cache_paths) {
                 Ok(segments) => {
                     log::info!(
@@ -551,6 +552,85 @@ pub fn get_recording_cache_dir(app: tauri::AppHandle) -> Result<String, String> 
     Ok(cache_dir.display().to_string())
 }
 
+#[tauri::command]
+pub fn delete_recordings_for_audio(
+    app: tauri::AppHandle,
+    audio_path: String,
+) -> Result<(), String> {
+    let app_cache_dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|error| format!("Failed to resolve app cache dir: {}", error))?;
+    let recording_dir = recording_cache_dir_for_audio(&app_cache_dir, &audio_path);
+
+    if recording_dir.exists() {
+        std::fs::remove_dir_all(&recording_dir).map_err(|error| {
+            format!(
+                "Failed to delete recordings at {}: {}",
+                recording_dir.display(),
+                error
+            )
+        })?;
+    }
+
+    Ok(())
+}
+
+fn recording_cache_dir_for_audio(app_cache_dir: &Path, audio_path: &str) -> PathBuf {
+    app_cache_dir
+        .join("recordings")
+        .join(recording_path_stem(audio_path))
+}
+
+fn recording_path_stem(audio_path: &str) -> String {
+    let file_name = Path::new(audio_path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("audio");
+    let stem = Path::new(file_name)
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .unwrap_or(file_name);
+
+    sanitize_recording_path_segment(stem)
+}
+
+fn sanitize_recording_path_segment(segment: &str) -> String {
+    let mut output = String::new();
+    let mut previous_was_space = false;
+
+    for ch in segment.trim().chars() {
+        let mapped = if ch.is_control()
+            || matches!(ch, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*')
+        {
+            '-'
+        } else if ch.is_whitespace() {
+            ' '
+        } else {
+            ch
+        };
+
+        if mapped == ' ' {
+            if previous_was_space {
+                continue;
+            }
+            previous_was_space = true;
+        } else {
+            previous_was_space = false;
+        }
+
+        if output.chars().count() < 80 {
+            output.push(mapped);
+        }
+    }
+
+    if output.is_empty() || output.chars().all(|ch| ch == '.') {
+        "audio".to_owned()
+    } else {
+        output
+    }
+}
+
 fn emit_transcribe_error(window: &tauri::Window, job_id: u64, audio_path: &str, error: String) {
     eprintln!("Transcription failed: {}", error);
     let _ = window.emit(
@@ -563,6 +643,13 @@ fn emit_transcribe_error(window: &tauri::Window, job_id: u64, audio_path: &str, 
     );
 }
 
+fn should_read_cached_transcription(
+    force_regenerate: Option<bool>,
+    subtitles_exist: bool,
+) -> bool {
+    subtitles_exist && !force_regenerate.unwrap_or(false)
+}
+
 fn whisper_model_filename(model: &str) -> Result<&'static str, String> {
     match model {
         "whisper-tiny" => Ok("ggml-tiny.en.bin"),
@@ -570,5 +657,45 @@ fn whisper_model_filename(model: &str) -> Result<&'static str, String> {
         "whisper-small" => Ok("ggml-small.en.bin"),
         "whisper-medium" => Ok("ggml-medium.en.bin"),
         other => Err(format!("Unsupported Whisper model: {}", other)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reads_cache_by_default_when_subtitles_exist() {
+        assert!(should_read_cached_transcription(None, true));
+        assert!(should_read_cached_transcription(Some(false), true));
+    }
+
+    #[test]
+    fn skips_cache_when_force_regenerating() {
+        assert!(!should_read_cached_transcription(Some(true), true));
+    }
+
+    #[test]
+    fn skips_cache_when_subtitles_are_missing() {
+        assert!(!should_read_cached_transcription(None, false));
+    }
+
+    #[test]
+    fn resolves_recording_directory_from_audio_stem() {
+        let base = Path::new("/tmp/app-cache");
+
+        assert_eq!(
+            recording_cache_dir_for_audio(base, "/tmp/lesson audio.mp3"),
+            PathBuf::from("/tmp/app-cache").join("recordings").join("lesson audio")
+        );
+    }
+
+    #[test]
+    fn sanitizes_recording_directory_stems_like_frontend() {
+        assert_eq!(
+            recording_path_stem("bad:name?.wav"),
+            "bad-name-"
+        );
+        assert_eq!(recording_path_stem("..."), "audio");
     }
 }

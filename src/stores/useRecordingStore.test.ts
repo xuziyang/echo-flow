@@ -444,6 +444,87 @@ describe('useRecordingStore', () => {
     expect(recording.userAudioUrl).toBe('blob:recording-1')
   })
 
+  it('clears in-memory and saved recordings for the requested audio', async () => {
+    const player = usePlayerStore()
+    player.currentPath = '/tmp/lesson.mp3'
+    player.clearSentenceSegment = vi.fn().mockResolvedValue(undefined)
+
+    const transcript = useTranscriptStore()
+    transcript.sentences = [{
+      id: 1,
+      en: 'first',
+      status: 'saved',
+      dirty: false,
+      issues: [],
+    }]
+
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === 'stop_recording') {
+        return {
+          samples: [0, 0.2, 0.4],
+          sample_rate: 44100,
+          channels: 1,
+        }
+      }
+      if (command === 'get_recording_cache_dir') return '/tmp/cache/recordings'
+      if (command === 'get_recording_waveform') return []
+      return undefined
+    })
+
+    const recording = useRecordingStore()
+    await recording.toggleRecording()
+    await recording.toggleRecording()
+    expect(recording.hasRecording).toBe(true)
+
+    await recording.clearRecordingsForAudio('/tmp/lesson.mp3')
+
+    expect(invokeMock).toHaveBeenCalledWith('delete_recordings_for_audio', {
+      audioPath: '/tmp/lesson.mp3',
+    })
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:recording-1')
+    expect(recording.hasRecording).toBe(false)
+    expect(recording.userAudioUrl).toBe(null)
+  })
+
+  it('keeps in-memory recordings when deleting saved recordings fails', async () => {
+    const player = usePlayerStore()
+    player.currentPath = '/tmp/lesson.mp3'
+    player.clearSentenceSegment = vi.fn().mockResolvedValue(undefined)
+
+    const transcript = useTranscriptStore()
+    transcript.sentences = [{
+      id: 1,
+      en: 'first',
+      status: 'saved',
+      dirty: false,
+      issues: [],
+    }]
+
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === 'stop_recording') {
+        return {
+          samples: [0, 0.2, 0.4],
+          sample_rate: 44100,
+          channels: 1,
+        }
+      }
+      if (command === 'get_recording_cache_dir') return '/tmp/cache/recordings'
+      if (command === 'get_recording_waveform') return []
+      if (command === 'delete_recordings_for_audio') throw 'delete failed'
+      return undefined
+    })
+
+    const recording = useRecordingStore()
+    await recording.toggleRecording()
+    await recording.toggleRecording()
+
+    await recording.clearRecordingsForAudio('/tmp/lesson.mp3')
+
+    expect(recording.hasRecording).toBe(true)
+    expect(recording.userAudioUrl).toBe('blob:recording-1')
+    expect(URL.revokeObjectURL).not.toHaveBeenCalledWith('blob:recording-1')
+  })
+
   it('keeps a recording attached to the same sentence id after indices shift', async () => {
     const player = usePlayerStore()
     player.currentPath = '/tmp/lesson.mp3'

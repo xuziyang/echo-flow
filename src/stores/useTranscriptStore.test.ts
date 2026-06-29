@@ -14,6 +14,7 @@ import {
   type TranscribeErrorEvent,
   type TranscribeProgressEvent,
 } from './useTranscriptStore'
+import { useAppStore } from './useAppStore'
 import { usePlayerStore } from './usePlayerStore'
 
 function sentence(overrides: Partial<Sentence> = {}): Sentence {
@@ -283,6 +284,96 @@ describe('useTranscriptStore', () => {
       whisperModel: 'whisper-base',
       modelDir: null,
     })
+  })
+
+  it('starts normal transcription without forcing regeneration and clears old subtitles', async () => {
+    const transcript = useTranscriptStore()
+    invokeMock.mockResolvedValue(12)
+    transcript.sentences = [sentence({ id: 7, en: 'Old cached subtitle.' })]
+
+    await transcript.startTranscribe('/tmp/current.mp3')
+
+    expect(transcript.sentences).toEqual([])
+    expect(transcript.isTranscribing).toBe(true)
+    expect(invokeMock).toHaveBeenCalledWith('transcribe_audio', {
+      audioPath: '/tmp/current.mp3',
+      modelPath: null,
+      whisperModel: 'whisper-base',
+      modelDir: null,
+      jobId: 1,
+      forceRegenerate: false,
+    })
+  })
+
+  it('regenerates subtitles by forcing transcription while preserving existing subtitles', async () => {
+    const transcript = useTranscriptStore()
+    invokeMock.mockResolvedValue(13)
+    transcript.currentAudioPath = '/tmp/current.mp3'
+    transcript.sentences = [sentence({ id: 7, en: 'Keep this until new subtitles arrive.' })]
+
+    await transcript.regenerateSubtitles()
+
+    expect(transcript.sentences).toHaveLength(1)
+    expect(transcript.sentences[0]?.en).toBe('Keep this until new subtitles arrive.')
+    expect(transcript.isTranscribing).toBe(true)
+    expect(invokeMock).toHaveBeenCalledWith('delete_recordings_for_audio', {
+      audioPath: '/tmp/current.mp3',
+    })
+    expect(invokeMock).toHaveBeenCalledWith('transcribe_audio', {
+      audioPath: '/tmp/current.mp3',
+      modelPath: null,
+      whisperModel: 'whisper-base',
+      modelDir: null,
+      jobId: 1,
+      forceRegenerate: true,
+    })
+  })
+
+  it('keeps existing subtitles when regeneration fails to start', async () => {
+    const transcript = useTranscriptStore()
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'delete_recordings_for_audio') return Promise.resolve(undefined)
+      if (command === 'transcribe_audio') return Promise.reject('startup failed')
+      return Promise.resolve(undefined)
+    })
+    transcript.currentAudioPath = '/tmp/current.mp3'
+    transcript.sentences = [sentence({ id: 7, en: 'Still here.' })]
+
+    await transcript.regenerateSubtitles()
+
+    expect(transcript.sentences).toHaveLength(1)
+    expect(transcript.sentences[0]?.en).toBe('Still here.')
+    expect(transcript.transcribeError).toBe('startup failed')
+    expect(transcript.transcribeStatus).toBe('Transcription failed')
+    expect(transcript.isTranscribing).toBe(false)
+  })
+
+  it('does not regenerate when current audio recordings cannot be deleted', async () => {
+    const transcript = useTranscriptStore()
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'delete_recordings_for_audio') return Promise.reject('delete failed')
+      return Promise.resolve(undefined)
+    })
+    transcript.currentAudioPath = '/tmp/current.mp3'
+    transcript.sentences = [sentence({ id: 7, en: 'Still here.' })]
+
+    await transcript.regenerateSubtitles()
+
+    expect(transcript.sentences).toHaveLength(1)
+    expect(transcript.sentences[0]?.en).toBe('Still here.')
+    expect(transcript.isTranscribing).toBe(false)
+    expect(invokeMock).not.toHaveBeenCalledWith('transcribe_audio', expect.anything())
+  })
+
+  it('does not regenerate when no audio is loaded', async () => {
+    const transcript = useTranscriptStore()
+    const app = useAppStore()
+
+    await transcript.regenerateSubtitles()
+
+    expect(invokeMock).not.toHaveBeenCalled()
+    expect(app.toast).toBe('Load an audio file before regenerating subtitles')
+    expect(app.toastType).toBe('error')
   })
 
   it('ignores stale transcription progress and applies matching events', () => {

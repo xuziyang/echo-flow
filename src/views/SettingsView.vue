@@ -85,10 +85,6 @@ function requestCancelDownload() {
   void modelDownload.cancelDownload()
 }
 
-function setDefaultWhisperModel(type: WhisperModelType) {
-  settings.selectedWhisperModel = type
-}
-
 async function chooseModelFolder() {
   const selected = await open({
     directory: true,
@@ -416,35 +412,43 @@ onUnmounted(() => {
               >
                 Whisper Models
               </h3>
+              <p
+                class="mt-1 text-xs"
+                :class="app.theme === 'dark' ? 'text-dark-subtext' : 'text-light-subtext'"
+              >
+                Choose the default model used for transcription.
+              </p>
               <div class="mt-3 space-y-2">
                 <div
                   v-for="model in whisperModels"
                   :key="model.type"
-                  class="flex items-center justify-between gap-3 rounded-lg p-3"
+                  class="flex flex-col gap-3 rounded-lg p-3 sm:flex-row sm:items-center sm:justify-between"
                   :class="app.theme === 'dark' ? 'bg-dark-bg' : 'bg-white'"
                 >
-                  <span class="text-xs" :class="app.theme === 'dark' ? 'text-white' : 'text-black'">{{ model.name }}</span>
-                  <div class="flex items-center gap-2">
+                  <label
+                    class="flex min-w-0 flex-1 items-center gap-3"
+                    :class="modelDownload.isModelInstalled(model.type) ? 'cursor-pointer' : 'cursor-not-allowed opacity-55'"
+                  >
+                    <input
+                      v-model="settings.selectedWhisperModel"
+                      type="radio"
+                      name="default-whisper-model"
+                      :value="model.type"
+                      :disabled="!modelDownload.isModelInstalled(model.type)"
+                      class="h-4 w-4 flex-shrink-0 accent-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60 disabled:cursor-not-allowed"
+                    />
                     <span
-                      v-if="modelDownload.isModelInstalled(model.type) && settings.selectedWhisperModel === model.type"
-                      class="rounded bg-sky-500/15 px-2 py-1 text-xs text-sky-500 ring-1 ring-sky-500/25"
+                      class="min-w-0 text-xs font-medium leading-8"
+                      :class="app.theme === 'dark' ? 'text-white' : 'text-black'"
                     >
-                      Default
+                      {{ model.name }}
                     </span>
-                    <button
-                      v-else-if="modelDownload.isModelInstalled(model.type)"
-                      type="button"
-                      class="rounded-md px-3 py-1 text-xs transition-colors"
-                      :class="app.theme === 'dark' ? 'text-dark-subtext hover:bg-white/10 hover:text-white' : 'text-light-subtext hover:bg-zinc-100 hover:text-zinc-950'"
-                      @click="setDefaultWhisperModel(model.type)"
-                    >
-                      Set default
-                    </button>
-                    <span v-if="modelDownload.isModelInstalled(model.type)" class="text-xs text-green-500">Installed</span>
+                  </label>
+                  <div class="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
                     <button
                       v-if="modelDownload.downloadingType === model.type"
                       type="button"
-                      class="rounded-md px-3 py-1 text-xs text-red-500 transition-colors hover:bg-red-100"
+                      class="inline-flex h-8 min-w-24 items-center justify-center rounded-md px-3 text-xs font-medium text-red-500 ring-1 ring-red-500/25 transition-colors hover:bg-red-500/10 focus:outline-none focus:ring-2 focus:ring-red-500/40"
                       @click="requestCancelDownload()"
                     >
                       Cancel
@@ -453,17 +457,19 @@ onUnmounted(() => {
                       v-else-if="!modelDownload.isModelInstalled(model.type)"
                       type="button"
                       :disabled="modelDownload.isDownloading"
-                      class="rounded-md bg-brand-500 px-3 py-1 text-xs text-white transition-colors hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-50"
+                      class="inline-flex h-8 min-w-28 items-center justify-center gap-1.5 rounded-md bg-brand-500 px-3 text-xs font-medium text-white transition-colors hover:bg-brand-600 focus:outline-none focus:ring-2 focus:ring-brand-500/60 disabled:cursor-not-allowed disabled:opacity-50"
                       @click="requestDownload(model.type)"
                     >
+                      <Icon name="download" class="h-3.5 w-3.5" />
                       Download
                     </button>
                     <button
                       v-else
                       type="button"
-                      class="rounded-md px-3 py-1 text-xs text-red-500 transition-colors hover:bg-red-100"
+                      class="inline-flex h-8 min-w-20 items-center justify-center gap-1.5 rounded-md px-3 text-xs font-medium text-red-500 transition-colors hover:bg-red-500/10 focus:outline-none focus:ring-2 focus:ring-red-500/40"
                       @click="requestDelete(model.type)"
                     >
+                      <Icon name="trash" class="h-3.5 w-3.5" />
                       Delete
                     </button>
                   </div>
@@ -485,16 +491,20 @@ onUnmounted(() => {
                 <div
                   v-for="model in supportModels"
                   :key="model.type"
-                  class="flex items-center justify-between gap-3 rounded-lg p-3"
+                  class="flex flex-col gap-3 rounded-lg p-3 sm:flex-row sm:items-center sm:justify-between"
                   :class="app.theme === 'dark' ? 'bg-dark-bg' : 'bg-white'"
                 >
-                  <span class="text-xs" :class="app.theme === 'dark' ? 'text-white' : 'text-black'">{{ model.name }}</span>
-                  <div class="flex items-center gap-2">
-                    <span v-if="modelDownload.isModelInstalled(model.type)" class="text-xs text-green-500">Installed</span>
+                  <span
+                    class="min-w-0 text-xs font-medium leading-8"
+                    :class="app.theme === 'dark' ? 'text-white' : 'text-black'"
+                  >
+                    {{ model.name }}
+                  </span>
+                  <div class="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
                     <button
                       v-if="modelDownload.downloadingType === model.type"
                       type="button"
-                      class="rounded-md px-3 py-1 text-xs text-red-500 transition-colors hover:bg-red-100"
+                      class="inline-flex h-8 min-w-24 items-center justify-center rounded-md px-3 text-xs font-medium text-red-500 ring-1 ring-red-500/25 transition-colors hover:bg-red-500/10 focus:outline-none focus:ring-2 focus:ring-red-500/40"
                       @click="requestCancelDownload()"
                     >
                       Cancel
@@ -503,17 +513,19 @@ onUnmounted(() => {
                       v-else-if="!modelDownload.isModelInstalled(model.type)"
                       type="button"
                       :disabled="modelDownload.isDownloading"
-                      class="rounded-md bg-brand-500 px-3 py-1 text-xs text-white transition-colors hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-50"
+                      class="inline-flex h-8 min-w-28 items-center justify-center gap-1.5 rounded-md bg-brand-500 px-3 text-xs font-medium text-white transition-colors hover:bg-brand-600 focus:outline-none focus:ring-2 focus:ring-brand-500/60 disabled:cursor-not-allowed disabled:opacity-50"
                       @click="requestDownload(model.type)"
                     >
+                      <Icon name="download" class="h-3.5 w-3.5" />
                       Download
                     </button>
                     <button
                       v-else
                       type="button"
-                      class="rounded-md px-3 py-1 text-xs text-red-500 transition-colors hover:bg-red-100"
+                      class="inline-flex h-8 min-w-20 items-center justify-center gap-1.5 rounded-md px-3 text-xs font-medium text-red-500 transition-colors hover:bg-red-500/10 focus:outline-none focus:ring-2 focus:ring-red-500/40"
                       @click="requestDelete(model.type)"
                     >
+                      <Icon name="trash" class="h-3.5 w-3.5" />
                       Delete
                     </button>
                   </div>

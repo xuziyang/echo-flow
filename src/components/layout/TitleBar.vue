@@ -50,13 +50,7 @@ onUnmounted(() => {
        ]"
        style="padding-top: env(safe-area-inset-top); height: calc(32px + env(safe-area-inset-top))"
        @mousedown="startDrag">
-    <!-- Left: app branding / drag area -->
-    <div class="flex items-center gap-3 flex-1 h-full">
-      <span class="text-[11px] font-semibold tracking-wide opacity-80"
-            :class="app.theme === 'dark' ? 'text-gray-300' : 'text-slate-600'">
-        echo-flow
-      </span>
-    </div>
+    <div class="flex-1 h-full" />
 
     <!-- Center: global actions -->
     <div class="flex gap-4 text-xs opacity-60 items-center" @mousedown.stop>

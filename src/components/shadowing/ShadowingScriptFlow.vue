@@ -315,7 +315,7 @@ watch(() => transcript.editingIndex, async (index) => {
               >
                 ?
                 <span
-                  class="pointer-events-none absolute right-0 top-5 z-40 hidden w-48 rounded-md border px-3 py-2 text-[10px] font-normal leading-relaxed shadow-lg group-hover:block"
+                  class="pointer-events-none absolute bottom-full right-0 z-40 mb-2 hidden w-48 rounded-md border px-3 py-2 text-left text-[10px] font-normal leading-relaxed shadow-lg group-hover:block"
                   :class="app.theme === 'dark'
                     ? 'border-white/10 bg-zinc-900 text-gray-200'
                     : 'border-black/10 bg-white text-gray-700'"
@@ -351,7 +351,7 @@ watch(() => transcript.editingIndex, async (index) => {
               >
                 ?
                 <span
-                  class="pointer-events-none absolute right-0 top-5 z-40 hidden w-48 rounded-md border px-3 py-2 text-[10px] font-normal leading-relaxed shadow-lg group-hover:block"
+                  class="pointer-events-none absolute bottom-full right-0 z-40 mb-2 hidden w-48 rounded-md border px-3 py-2 text-left text-[10px] font-normal leading-relaxed shadow-lg group-hover:block"
                   :class="app.theme === 'dark'
                     ? 'border-white/10 bg-zinc-900 text-gray-200'
                     : 'border-black/10 bg-white text-gray-700'"

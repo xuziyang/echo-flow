@@ -1,5 +1,6 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 mod audio;
+mod devices;
 mod download;
 mod record;
 mod transcribe;
@@ -58,6 +59,7 @@ pub fn run() {
         ])
         .setup(|app| {
             info!("echo-flow starting...");
+            devices::start_device_watcher(app.handle().clone());
             let builder = tauri::WebviewWindowBuilder::from_config(
                 app.handle(),
                 &app.config().app.windows[0],

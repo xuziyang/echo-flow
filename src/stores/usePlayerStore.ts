@@ -115,6 +115,19 @@ export const usePlayerStore = defineStore('player', () => {
     }
   }
 
+  /// 输出设备丢失：暂停播放（若仍在播放）并提示用户。
+  async function pauseForDeviceLost() {
+    if (isPlaying.value) {
+      try {
+        const state = await invoke<PlaybackState>('pause_playback')
+        applyPlaybackState(state, { includeWaveform: false })
+      } catch {
+        // 设备已断开，暂停可能失败——忽略，仍提示用户
+      }
+    }
+    app.showSubtitleToast('播放设备已断开，已暂停播放', 'error')
+  }
+
   async function stopPlayback() {
     finishSegmentPlayback(false)
     try {
@@ -255,7 +268,7 @@ export const usePlayerStore = defineStore('player', () => {
     isPlaying, isLooping, currentIndex, volume, lastVolume, showEn, seeking,
     currentPath, positionMs, durationMs, waveformSamples, activeSegmentEndMs,
     applyPlaybackState, applyWaveformPreview, setEstimatedPosition,
-    startPlayback, togglePlay, stopPlayback, seekTo,
+    startPlayback, togglePlay, stopPlayback, seekTo, pauseForDeviceLost,
     canPlaySentenceSegment, clearSentenceSegment, playSentenceSegment,
     toggleLoop, toggleMute, setVolume, setCurrentIndex, prevSentence, nextSentence,
     toggleEn,

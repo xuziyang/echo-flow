@@ -5,7 +5,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
 import { openPath } from '@tauri-apps/plugin-opener'
 import { useAppStore } from '../stores/useAppStore'
-import { useSettingsStore, type AudioDeviceOption, type WhisperModelType } from '../stores/useSettingsStore'
+import { useSettingsStore, type WhisperModelType } from '../stores/useSettingsStore'
 import { useModelDownloadStore, type ModelType } from '../stores/useModelDownloadStore'
 import Icon from '../components/Icon.vue'
 
@@ -131,38 +131,6 @@ async function refreshResolvedModelDirectory() {
   }
 }
 
-async function loadAudioInputDevices() {
-  try {
-    const devices = await invoke<AudioDeviceOption[]>('list_recording_input_devices')
-    settings.audioInputDevices = devices
-
-    if (
-      settings.selectedInputId
-      && !devices.some((device) => device.deviceId === settings.selectedInputId)
-    ) {
-      settings.selectedInputId = ''
-    }
-  } catch (error) {
-    app.showSubtitleToast(typeof error === 'string' ? error : String(error), 'error')
-  }
-}
-
-async function loadAudioOutputDevices() {
-  try {
-    const devices = await invoke<AudioDeviceOption[]>('list_playback_output_devices')
-    settings.audioOutputDevices = devices
-
-    if (
-      settings.selectedOutputId
-      && !devices.some((device) => device.deviceId === settings.selectedOutputId)
-    ) {
-      settings.selectedOutputId = ''
-    }
-  } catch (error) {
-    app.showSubtitleToast(typeof error === 'string' ? error : String(error), 'error')
-  }
-}
-
 async function openAppCacheFolder() {
   try {
     const folder = appCacheDirectory.value || await invoke<string>('get_app_cache_dir')
@@ -186,8 +154,6 @@ onMounted(() => {
   void modelDownload.checkModels()
   void loadCacheDirectories()
   void refreshResolvedModelDirectory()
-  void loadAudioInputDevices()
-  void loadAudioOutputDevices()
   window.addEventListener('keydown', onKeydown, { capture: true })
 })
 

@@ -4,6 +4,8 @@ import { usePlaybackSync } from './composables/usePlaybackSync'
 import { useTranscribeEvents } from './composables/useTranscribeEvents'
 import { useWaveformPreviewEvents } from './composables/useWaveformPreviewEvents'
 import { useDownloadEvents } from './composables/useDownloadEvents'
+import { useAudioDeviceEvents } from './composables/useAudioDeviceEvents'
+import { useAudioStreamEvents } from './composables/useAudioStreamEvents'
 import TitleBar from './components/layout/TitleBar.vue'
 import AppSidebar from './components/layout/AppSidebar.vue'
 import SubtitleToast from './components/layout/SubtitleToast.vue'
@@ -16,6 +18,8 @@ usePlaybackSync()
 useTranscribeEvents()
 useWaveformPreviewEvents()
 useDownloadEvents()
+useAudioDeviceEvents()
+useAudioStreamEvents()
 </script>
 
 <template>

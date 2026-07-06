@@ -121,7 +121,7 @@ export const useRecordingStore = defineStore('recording', () => {
     }
   }
 
-  async function stopRecording() {
+  async function stopRecording(options?: { silent?: boolean }) {
     if (!isRecording.value) return
 
     try {
@@ -137,7 +137,7 @@ export const useRecordingStore = defineStore('recording', () => {
       // Convert samples to audio URL for playback
       if (recordingSamples.value.length > 0) {
         storeSentenceRecording(recordingSentenceIndex)
-        await saveCurrentSentenceRecording(recordingSentenceIndex)
+        await saveCurrentSentenceRecording(recordingSentenceIndex, { silentSuccess: options?.silent })
       }
     } catch (err) {
       app.showSubtitleToast(typeof err === 'string' ? err : String(err), 'error')
@@ -145,6 +145,13 @@ export const useRecordingStore = defineStore('recording', () => {
       stopWaveformPolling()
       isRecording.value = false
     }
+  }
+
+  /// 录音设备丢失：提示用户并停止录音，保留已录制部分（静默保存成功提示）。
+  async function handleRecordingDeviceLost() {
+    if (!isRecording.value) return
+    app.showSubtitleToast('录音设备已断开，已保留已录制部分', 'error')
+    await stopRecording({ silent: true })
   }
 
   function stopWaveformPolling() {
@@ -412,14 +419,19 @@ export const useRecordingStore = defineStore('recording', () => {
     return joinPath(baseDirectory, `sentence-${sentenceId}.wav`)
   }
 
-  async function saveCurrentSentenceRecording(sentenceIndex: number) {
+  async function saveCurrentSentenceRecording(
+    sentenceIndex: number,
+    options?: { silentSuccess?: boolean },
+  ) {
     const path = await getSentenceRecordingPath(sentenceIndex)
     if (!path) return
 
     try {
       await saveRecording(path)
-      const fileName = path.split(/[\\/]/).pop() || 'recording.wav'
-      app.showSubtitleToast(`录音已保存：${fileName}`)
+      if (!options?.silentSuccess) {
+        const fileName = path.split(/[\\/]/).pop() || 'recording.wav'
+        app.showSubtitleToast(`录音已保存：${fileName}`)
+      }
     } catch (error) {
       app.showSubtitleToast(typeof error === 'string' ? error : String(error), 'error')
     }
@@ -723,6 +735,7 @@ export const useRecordingStore = defineStore('recording', () => {
     setAutoRecordEnabled,
     toggleAutoRecordEnabled,
     toggleRecording,
+    handleRecordingDeviceLost,
     playOriginal,
     playUserRecording,
     playComparison,

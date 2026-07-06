@@ -1,6 +1,7 @@
 // src/stores/useSettingsStore.ts
 import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
+import { invoke } from '@tauri-apps/api/core'
 
 export type WhisperModelType = 'whisper-tiny' | 'whisper-base' | 'whisper-small' | 'whisper-medium'
 
@@ -70,6 +71,32 @@ export const useSettingsStore = defineStore('settings', () => {
   const modelDirectory = ref(persistedSettings.modelDirectory ?? '')
   const selectedWhisperModel = ref<WhisperModelType>(persistedSettings.selectedWhisperModel ?? 'whisper-base')
 
+  // 拉取最新输入设备列表；若已选设备已消失则清空选择（回退到系统默认）。
+  async function refreshAudioInputDevices() {
+    try {
+      const devices = await invoke<AudioDeviceOption[]>('list_recording_input_devices')
+      audioInputDevices.value = devices
+      if (selectedInputId.value && !devices.some((device) => device.deviceId === selectedInputId.value)) {
+        selectedInputId.value = ''
+      }
+    } catch (error) {
+      console.warn('Failed to load audio input devices:', error)
+    }
+  }
+
+  // 拉取最新输出设备列表；若已选设备已消失则清空选择（回退到系统默认）。
+  async function refreshAudioOutputDevices() {
+    try {
+      const devices = await invoke<AudioDeviceOption[]>('list_playback_output_devices')
+      audioOutputDevices.value = devices
+      if (selectedOutputId.value && !devices.some((device) => device.deviceId === selectedOutputId.value)) {
+        selectedOutputId.value = ''
+      }
+    } catch (error) {
+      console.warn('Failed to load audio output devices:', error)
+    }
+  }
+
   watch(
     [selectedInputId, selectedOutputId, modelDirectory, selectedWhisperModel],
     () => {
@@ -89,5 +116,7 @@ export const useSettingsStore = defineStore('settings', () => {
     selectedOutputId,
     modelDirectory,
     selectedWhisperModel,
+    refreshAudioInputDevices,
+    refreshAudioOutputDevices,
   }
 })

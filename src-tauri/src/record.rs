@@ -3,12 +3,16 @@ use cpal::{Device, Host, SampleFormat, Stream};
 use log::{error, info};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use tauri::Emitter;
 
 static IS_RECORDING: AtomicBool = AtomicBool::new(false);
 static RECORDING_DATA: once_cell::sync::Lazy<Arc<Mutex<Vec<f32>>>> =
     once_cell::sync::Lazy::new(|| Arc::new(Mutex::new(Vec::new())));
 static RECORDING_SAMPLE_RATE: std::sync::atomic::AtomicU32 =
     std::sync::atomic::AtomicU32::new(44100);
+
+/// 录音流因设备丢失等原因异常终止时置位，供前端感知并保留已采集数据。
+static RECORDING_LOST: AtomicBool = AtomicBool::new(false);
 
 // Store stream in a static. Box<Stream> is not Send/Sync but we only access it from the main thread
 // via Tauri commands, which are always called from the main thread
@@ -66,11 +70,12 @@ fn resolve_input_device(host: &Host, device_id: Option<&str>) -> Result<Device, 
 }
 
 #[tauri::command]
-pub fn start_recording(device_id: Option<String>) -> Result<(), String> {
+pub fn start_recording(app: tauri::AppHandle, device_id: Option<String>) -> Result<(), String> {
     if IS_RECORDING.load(Ordering::SeqCst) {
         return Err("Already recording".to_string());
     }
 
+    RECORDING_LOST.store(false, Ordering::SeqCst);
     drop_recording_stream();
 
     let host = cpal::default_host();
@@ -98,7 +103,17 @@ pub fn start_recording(device_id: Option<String>) -> Result<(), String> {
     let data = RECORDING_DATA.clone();
     let is_recording = Arc::new(AtomicBool::new(true));
 
-    let err_fn = |err| error!("Audio stream error: {}", err);
+    let err_fn = move |err: cpal::StreamError| {
+        error!("Audio stream error: {}", err);
+        // 设备丢失等流错误：通知前端保留已采集数据，由 stop_recording 取回。
+        if IS_RECORDING.load(Ordering::SeqCst)
+            && RECORDING_LOST
+                .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok()
+        {
+            let _ = app.emit("recording-device-lost", ());
+        }
+    };
 
     let stream: Stream = match config.sample_format() {
         SampleFormat::F32 => {
@@ -196,6 +211,7 @@ pub fn stop_recording() -> Result<RecordingData, String> {
     }
 
     IS_RECORDING.store(false, Ordering::SeqCst);
+    RECORDING_LOST.store(false, Ordering::SeqCst);
 
     // Ensure last samples are captured
     std::thread::sleep(std::time::Duration::from_millis(100));

@@ -17,6 +17,10 @@ use tauri::Emitter;
 
 const WAVEFORM_PREVIEW_SAMPLES: usize = 2400;
 
+/// 播放非正常结束时（如输出设备丢失），实际进度距时长超过该阈值才判定为设备丢失，
+/// 避免自然结束时因计时抖动误报。
+const DEVICE_LOST_TOLERANCE_MS: u64 = 500;
+
 /// 音频文件元数据
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AudioFileMetadata {
@@ -88,6 +92,8 @@ pub struct AudioPlayer {
     pub sample_rate: Arc<Mutex<u32>>,
     pub channels: Arc<Mutex<u16>>,
     current_output_device_id: Option<String>,
+    /// 输出设备丢失标记，由 normalize_finished_state 置位，take_device_lost 取回。
+    device_lost: bool,
 }
 
 impl AudioPlayer {
@@ -105,6 +111,7 @@ impl AudioPlayer {
             sample_rate: Arc::new(Mutex::new(44100)),
             channels: Arc::new(Mutex::new(2)),
             current_output_device_id: None,
+            device_lost: false,
         })
     }
 
@@ -440,6 +447,13 @@ impl AudioPlayer {
         self.build_state()
     }
 
+    /// 取回并清除"输出设备丢失"标记。
+    pub fn take_device_lost(&mut self) -> bool {
+        let lost = self.device_lost;
+        self.device_lost = false;
+        lost
+    }
+
     fn is_sink_finished(&self) -> bool {
         matches!(self.state, PlayerState::Playing { .. })
             && self.sink.as_ref().is_some_and(|sink| sink.empty())
@@ -454,9 +468,20 @@ impl AudioPlayer {
             sink.stop();
         }
 
-        if let PlayerState::Playing { duration_ms, .. } = self.state {
+        if let PlayerState::Playing {
+            start_instant,
+            offset_ms,
+            duration_ms,
+        } = self.state
+        {
+            let elapsed = start_instant.elapsed().as_millis() as u64;
+            let position_ms = (offset_ms + elapsed).min(duration_ms);
+            // 实际进度明显小于时长 → 非正常结束（多为输出设备丢失），标记通知前端。
+            if position_ms + DEVICE_LOST_TOLERANCE_MS < duration_ms {
+                self.device_lost = true;
+            }
             self.state = PlayerState::Paused {
-                position_ms: duration_ms,
+                position_ms,
                 duration_ms,
             };
         }
@@ -542,8 +567,12 @@ fn start_position_emitting(app: tauri::AppHandle) {
             let app2 = app.clone();
             let _ = app.run_on_main_thread(move || {
                 PLAYER.with(|p| {
-                    let state = p.borrow_mut().get_state();
+                    let mut player = p.borrow_mut();
+                    let state = player.get_state();
                     let _ = app2.emit("playback-state", &state);
+                    if player.take_device_lost() {
+                        let _ = app2.emit("playback-device-lost", ());
+                    }
                     if !state.is_playing {
                         POSITION_EMITTING.store(false, Ordering::Relaxed);
                     }
@@ -769,8 +798,15 @@ pub fn set_playback_volume(volume: f32) -> PlaybackState {
 
 /// 获取当前播放状态
 #[tauri::command]
-pub fn get_playback_state() -> PlaybackState {
-    PLAYER.with(|p| p.borrow_mut().get_state())
+pub fn get_playback_state(app: tauri::AppHandle) -> PlaybackState {
+    PLAYER.with(|p| {
+        let mut player = p.borrow_mut();
+        let state = player.get_state();
+        if player.take_device_lost() {
+            let _ = app.emit("playback-device-lost", ());
+        }
+        state
+    })
 }
 
 // ---------------------------------------------------------------------------

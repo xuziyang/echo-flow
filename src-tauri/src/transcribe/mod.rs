@@ -30,7 +30,8 @@ pub use asr::{Asr, AsrConfig};
 pub use audio::Audio;
 pub use error::SubtitleError;
 pub use types::{
-    CacheSubtitleEntry, FrontendTranscriptSegment, ProcessingResult, SplitAlignmentResult,
+    CacheSubtitleEntry, FrontendTranscriptSegment, ProcessingResult, RegenerateTextBound,
+    RegenerateTextsDoneEvent, RegenerateTextUpdate, SplitAlignmentResult, Subtitle,
 };
 
 // Re-export frontend-compatible types (旧接口保持兼容)
@@ -113,6 +114,33 @@ impl SubtitlePipeline {
             transcript,
             subtitles,
         })
+    }
+
+    /// 重新识别文本：跑完整 VAD + Whisper（保留上下文）+ Wav2Vec2 对齐，
+    /// 然后用 bounds 里的旧时间边界从词级对齐结果里切出每句新文本。
+    /// 不改变句子分段和 ID，录音得以保留。
+    pub fn regenerate_texts_with_progress<F>(
+        &self,
+        input: &Path,
+        bounds: &[RegenerateTextBound],
+        mut progress: F,
+    ) -> Result<Vec<RegenerateTextUpdate>, SubtitleError>
+    where
+        F: FnMut(&str, f32),
+    {
+        progress("Loading audio", 0.0);
+        let audio = self.audio.load(input)?;
+        progress("Audio loaded", 10.0);
+
+        progress("Detecting voice segments", 10.0);
+        let transcript = self.asr.recognize(&audio)?;
+        progress("Transcription complete", 60.0);
+
+        progress("Aligning with Wav2Vec2", 60.0);
+        let updates = self.aligner.align_text_for_bounds(&audio, &transcript, bounds)?;
+        progress("Subtitles ready", 100.0);
+
+        Ok(updates)
     }
 }
 
@@ -378,23 +406,9 @@ pub fn transcribe_audio(
                     .collect();
 
                 // 保存 SRT 文件
+                let srt_path = write_srt_next_to_audio(&audio_path_clone, &result.subtitles);
+
                 let source = Path::new(&audio_path_clone);
-                let parent = source.parent().unwrap_or_else(|| Path::new("."));
-                let stem = source
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("transcript");
-                let srt_path = parent.join(format!("{}.srt", stem));
-
-                match std::fs::File::create(&srt_path) {
-                    Ok(file) => {
-                        if let Err(e) = writer::write_srt(&result.subtitles, file) {
-                            eprintln!("Failed to write SRT: {}", e);
-                        }
-                    }
-                    Err(e) => eprintln!("Failed to create SRT file: {}", e),
-                }
-
                 let metadata = cache::TranscriptionCacheMetadata {
                     schema_version: cache::CACHE_SCHEMA_VERSION,
                     source_name: cache::source_name(source),
@@ -436,6 +450,111 @@ pub fn transcribe_audio(
             }
             Err(e) => {
                 eprintln!("Transcription failed: {}", e);
+                let _ = window_clone.emit(
+                    "transcribe-error",
+                    TranscribeErrorEvent {
+                        job_id: resolved_job_id,
+                        audio_path: audio_path_clone.clone(),
+                        error: e.to_string(),
+                    },
+                );
+            }
+        }
+    });
+
+    Ok(resolved_job_id)
+}
+
+/// 重新识别文本：保留现有时间边界和录音，只重新生成每句文本。
+/// 跑完整 VAD + Whisper（保留上下文）+ Wav2Vec2 对齐，再用旧边界从对齐结果里切出新文本。
+#[tauri::command]
+pub fn regenerate_subtitle_texts(
+    window: tauri::Window,
+    audio_path: String,
+    bounds: Vec<RegenerateTextBound>,
+    model_path: Option<String>,
+    whisper_model: Option<String>,
+    model_dir: Option<String>,
+    job_id: Option<u64>,
+) -> Result<u64, String> {
+    let (whisper_model_path, vad_model, align_model, align_vocab) = resolve_transcription_model_paths(
+        model_path.as_deref(),
+        whisper_model.as_deref(),
+        model_dir.as_deref(),
+    )?;
+
+    log::info!(
+        "Starting subtitle text regeneration: audio={}, bounds={}",
+        audio_path,
+        bounds.len()
+    );
+
+    let resolved_job_id =
+        job_id.unwrap_or_else(|| LAST_TRANSCRIBE_JOB_ID.fetch_add(1, Ordering::Relaxed) + 1);
+    let audio_path_clone = audio_path.clone();
+    let window_clone = window.clone();
+
+    std::thread::spawn(move || {
+        let progress_audio_path = audio_path_clone.clone();
+        let pipeline =
+            SubtitlePipeline::with_config(whisper_model_path, vad_model, align_model, align_vocab);
+
+        let result = pipeline.regenerate_texts_with_progress(
+            Path::new(&audio_path_clone),
+            &bounds,
+            |stage, percent| {
+                let _ = window_clone.emit(
+                    "transcribe-progress",
+                    TranscribeProgressEvent {
+                        job_id: resolved_job_id,
+                        audio_path: progress_audio_path.clone(),
+                        percent,
+                        sentence: stage.to_string(),
+                        done: false,
+                    },
+                );
+            },
+        );
+
+        match result {
+            Ok(updates) => {
+                // 合并新旧文本（updates 已含 fallback），写 SRT 到音频同目录
+                // align_text_for_bounds 保证 updates 与 bounds 等长同序
+                let subtitles: Vec<Subtitle> = bounds
+                    .iter()
+                    .zip(updates.iter())
+                    .enumerate()
+                    .map(|(index, (bound, update))| {
+                        let start_ms = bound.start_ms.max(0) as u64;
+                        let end_ms = (bound.end_ms.max(0) as u64).max(start_ms + 1);
+                        Subtitle {
+                            index: index + 1,
+                            start_ms,
+                            end_ms,
+                            text: update.text.clone(),
+                        }
+                    })
+                    .collect();
+
+                let srt_path = write_srt_next_to_audio(&audio_path_clone, &subtitles);
+
+                eprintln!(
+                    "Subtitle text regeneration complete: {} updates, saved to {}",
+                    updates.len(),
+                    srt_path.display()
+                );
+
+                let _ = window_clone.emit(
+                    "transcribe-texts-done",
+                    RegenerateTextsDoneEvent {
+                        job_id: resolved_job_id,
+                        audio_path: audio_path_clone.clone(),
+                        updates,
+                    },
+                );
+            }
+            Err(e) => {
+                eprintln!("Subtitle text regeneration failed: {}", e);
                 let _ = window_clone.emit(
                     "transcribe-error",
                     TranscribeErrorEvent {
@@ -629,6 +748,25 @@ fn sanitize_recording_path_segment(segment: &str) -> String {
     } else {
         output
     }
+}
+
+fn write_srt_next_to_audio(audio_path: &str, subtitles: &[Subtitle]) -> PathBuf {
+    let source = Path::new(audio_path);
+    let parent = source.parent().unwrap_or_else(|| Path::new("."));
+    let stem = source
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("transcript");
+    let srt_path = parent.join(format!("{}.srt", stem));
+    match std::fs::File::create(&srt_path) {
+        Ok(file) => {
+            if let Err(e) = writer::write_srt(subtitles, file) {
+                eprintln!("Failed to write SRT: {}", e);
+            }
+        }
+        Err(e) => eprintln!("Failed to create SRT file: {}", e),
+    }
+    srt_path
 }
 
 fn emit_transcribe_error(window: &tauri::Window, job_id: u64, audio_path: &str, error: String) {

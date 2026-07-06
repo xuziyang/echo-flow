@@ -10,8 +10,9 @@ use ort::value::Tensor;
 use super::audio::SAMPLE_RATE;
 use super::error::SubtitleError;
 use super::types::{
-    ms_to_sample, samples_to_ms, validate_audio, AlignedRange, AudioSamples, SplitAlignmentResult,
-    Subtitle, Transcript, TranscriptSegment, DEFAULT_LANGUAGE,
+    ms_to_sample, samples_to_ms, validate_audio, AlignedRange, AudioSamples, RegenerateTextBound,
+    RegenerateTextUpdate, SplitAlignmentResult, Subtitle, Transcript, TranscriptSegment,
+    DEFAULT_LANGUAGE,
 };
 
 const MIN_WAV2VEC_SAMPLES: usize = 400;
@@ -262,6 +263,51 @@ impl Aligner {
             right_end,
         ))
     }
+
+    /// 对每个用户给定的时间边界，从完整 Whisper + 对齐结果里提取落在该区间内的文本。
+    /// 跑完整 chunk 保留 Whisper 上下文，仅用旧边界从词级对齐结果里切文本，
+    /// 因此 sentenceId 和时间边界不变，录音得以保留。
+    /// 对齐失败或区间内无词时，保留 bound 中的旧文本作为 fallback。
+    pub fn align_text_for_bounds(
+        &self,
+        audio: &AudioSamples,
+        transcript: &Transcript,
+        bounds: &[RegenerateTextBound],
+    ) -> Result<Vec<RegenerateTextUpdate>, SubtitleError> {
+        validate_audio(audio, SAMPLE_RATE)?;
+
+        let mut models_guard = self
+            .models
+            .lock()
+            .map_err(|error| SubtitleError::AlignInference(error.to_string()))?;
+        if models_guard.is_none() {
+            *models_guard = Some(load_models(&self.config)?);
+        }
+        let models = models_guard
+            .as_mut()
+            .expect("alignment models should be initialized");
+
+        // 预计算每个 Whisper chunk 的词级对齐结果
+        let mut chunk_words: Vec<(&TranscriptSegment, Vec<AlignedWord>)> = Vec::new();
+        for segment in &transcript.segments {
+            let words = match align_segment(audio, segment, models)? {
+                Some(chars) => aligned_words(&segment.text, &chars),
+                None => Vec::new(),
+            };
+            chunk_words.push((segment, words));
+        }
+
+        let mut updates = Vec::with_capacity(bounds.len());
+        for bound in bounds {
+            let text = resolve_bound_text(&chunk_words, bound);
+            updates.push(RegenerateTextUpdate {
+                id: bound.id,
+                text,
+            });
+        }
+
+        Ok(updates)
+    }
 }
 
 fn normalize_split_alignment(
@@ -305,6 +351,52 @@ fn normalize_split_alignment(
             end_ms: right_end as i64,
         },
     }
+}
+
+/// 按词中心点归属，从某个 Whisper chunk 的对齐词里提取落在 bound 时间区间内的文本。
+/// bound 必须完全落在单个 chunk 内；跨 chunk 或区间内无词时保留旧文本。
+fn resolve_bound_text(
+    chunk_words: &[(&TranscriptSegment, Vec<AlignedWord>)],
+    bound: &RegenerateTextBound,
+) -> String {
+    let start_ms = match u64::try_from(bound.start_ms) {
+        Ok(v) => v,
+        Err(_) => return bound.text.clone(),
+    };
+    let end_ms = match u64::try_from(bound.end_ms) {
+        Ok(v) => v,
+        Err(_) => return bound.text.clone(),
+    };
+    if end_ms <= start_ms {
+        return bound.text.clone();
+    }
+
+    for (segment, words) in chunk_words {
+        // bound 必须完全落在单个 chunk 内（跨 chunk 时 fallback）
+        if segment.start_ms <= start_ms && segment.end_ms >= end_ms {
+            let mut char_start: Option<usize> = None;
+            let mut char_end: Option<usize> = None;
+            for word in words {
+                let center = (word.start_ms + word.end_ms) / 2;
+                if center >= start_ms && center <= end_ms {
+                    char_start = Some(char_start.map_or(word.start_original, |s| s.min(word.start_original)));
+                    char_end = Some(char_end.map_or(word.end_original, |e| e.max(word.end_original)));
+                }
+            }
+            if let (Some(cs), Some(ce)) = (char_start, char_end) {
+                if ce > cs {
+                    let text: String = segment.text.chars().skip(cs).take(ce - cs).collect();
+                    let trimmed = text.trim().to_owned();
+                    if !trimmed.is_empty() {
+                        return trimmed;
+                    }
+                }
+            }
+            return bound.text.clone();
+        }
+    }
+
+    bound.text.clone()
 }
 
 fn load_models(config: &AlignerConfig) -> Result<AlignerModels, SubtitleError> {
@@ -980,5 +1072,90 @@ mod tests {
         assert!(result.left.end_ms > result.left.start_ms);
         assert!(result.right.end_ms > result.right.start_ms);
         assert!(result.left.end_ms <= result.right.start_ms);
+    }
+
+    fn bound(id: i64, start_ms: i64, end_ms: i64, text: &str) -> RegenerateTextBound {
+        RegenerateTextBound {
+            id,
+            start_ms,
+            end_ms,
+            text: text.to_owned(),
+        }
+    }
+
+    #[test]
+    fn resolve_bound_text_extracts_words_whose_centers_fall_in_range() {
+        let segment = TranscriptSegment {
+            id: 0,
+            start_ms: 0,
+            end_ms: 5_000,
+            text: "hello world friend".to_owned(),
+        };
+        let words = vec![
+            AlignedWord { start_original: 0, end_original: 5, start_ms: 100, end_ms: 900, score: 0.9 },
+            AlignedWord { start_original: 6, end_original: 11, start_ms: 1_100, end_ms: 1_900, score: 0.8 },
+            AlignedWord { start_original: 12, end_original: 18, start_ms: 2_100, end_ms: 2_900, score: 0.7 },
+        ];
+        let chunk_words: Vec<(&TranscriptSegment, Vec<AlignedWord>)> = vec![(&segment, words)];
+
+        assert_eq!(resolve_bound_text(&chunk_words, &bound(7, 1_000, 2_000, "old")), "world");
+    }
+
+    #[test]
+    fn resolve_bound_text_merges_multiple_words_in_range() {
+        let segment = TranscriptSegment {
+            id: 0,
+            start_ms: 0,
+            end_ms: 5_000,
+            text: "hello world friend".to_owned(),
+        };
+        let words = vec![
+            AlignedWord { start_original: 0, end_original: 5, start_ms: 100, end_ms: 900, score: 0.9 },
+            AlignedWord { start_original: 6, end_original: 11, start_ms: 1_100, end_ms: 1_900, score: 0.8 },
+            AlignedWord { start_original: 12, end_original: 18, start_ms: 2_100, end_ms: 2_900, score: 0.7 },
+        ];
+        let chunk_words: Vec<(&TranscriptSegment, Vec<AlignedWord>)> = vec![(&segment, words)];
+
+        assert_eq!(resolve_bound_text(&chunk_words, &bound(7, 500, 2_500, "old")), "hello world friend");
+    }
+
+    #[test]
+    fn resolve_bound_text_falls_back_when_no_words_in_range() {
+        let segment = TranscriptSegment {
+            id: 0,
+            start_ms: 0,
+            end_ms: 5_000,
+            text: "hello".to_owned(),
+        };
+        let words = vec![AlignedWord { start_original: 0, end_original: 5, start_ms: 100, end_ms: 900, score: 0.9 }];
+        let chunk_words: Vec<(&TranscriptSegment, Vec<AlignedWord>)> = vec![(&segment, words)];
+
+        assert_eq!(resolve_bound_text(&chunk_words, &bound(7, 3_000, 4_000, "kept")), "kept");
+    }
+
+    #[test]
+    fn resolve_bound_text_falls_back_when_bound_spans_chunks() {
+        let seg1 = TranscriptSegment { id: 0, start_ms: 0, end_ms: 2_000, text: "hello".to_owned() };
+        let seg2 = TranscriptSegment { id: 1, start_ms: 2_000, end_ms: 5_000, text: "world".to_owned() };
+        let words1 = vec![AlignedWord { start_original: 0, end_original: 5, start_ms: 100, end_ms: 900, score: 0.9 }];
+        let words2 = vec![AlignedWord { start_original: 0, end_original: 5, start_ms: 2_100, end_ms: 2_900, score: 0.8 }];
+        let chunk_words: Vec<(&TranscriptSegment, Vec<AlignedWord>)> = vec![(&seg1, words1), (&seg2, words2)];
+
+        assert_eq!(resolve_bound_text(&chunk_words, &bound(7, 1_500, 2_500, "kept")), "kept");
+    }
+
+    #[test]
+    fn resolve_bound_text_falls_back_for_invalid_timestamps() {
+        let segment = TranscriptSegment {
+            id: 0,
+            start_ms: 0,
+            end_ms: 5_000,
+            text: "hello".to_owned(),
+        };
+        let words = vec![AlignedWord { start_original: 0, end_original: 5, start_ms: 100, end_ms: 900, score: 0.9 }];
+        let chunk_words: Vec<(&TranscriptSegment, Vec<AlignedWord>)> = vec![(&segment, words)];
+
+        assert_eq!(resolve_bound_text(&chunk_words, &bound(7, -1, 1_000, "kept")), "kept");
+        assert_eq!(resolve_bound_text(&chunk_words, &bound(7, 1_000, 1_000, "kept2")), "kept2");
     }
 }

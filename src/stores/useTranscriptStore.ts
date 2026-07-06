@@ -70,6 +70,24 @@ export interface SplitAlignmentResult {
   right: AlignedRange
 }
 
+export interface RegenerateTextBound {
+  id: number
+  start_ms: number
+  end_ms: number
+  text: string
+}
+
+export interface RegenerateTextUpdate {
+  id: number
+  text: string
+}
+
+export interface RegenerateTextsDoneEvent {
+  job_id: number
+  audio_path: string
+  updates: RegenerateTextUpdate[]
+}
+
 interface SplitAlignmentOptions {
   leftId: number
   rightId: number
@@ -562,6 +580,101 @@ export const useTranscriptStore = defineStore('transcript', () => {
     })
   }
 
+  /**
+   * 重新识别文本：保留时间边界和录音，只重新生成每句文本。
+   * 跑完整 Whisper（保留上下文）+ Wav2Vec2 对齐，再用旧边界从对齐结果里切出新文本。
+   */
+  async function regenerateSubtitleTexts(): Promise<void> {
+    if (isTranscribing.value) return
+
+    const audioPath = currentAudioPath.value
+    if (!audioPath) {
+      app.showSubtitleToast('Load an audio file before regenerating subtitle texts', 'error')
+      return
+    }
+
+    const bounds: RegenerateTextBound[] = sentences.value
+      .filter(s => Number.isFinite(s.start_ms) && Number.isFinite(s.end_ms)
+        && (s.end_ms as number) > (s.start_ms as number))
+      .map(s => ({
+        id: s.id,
+        start_ms: s.start_ms as number,
+        end_ms: s.end_ms as number,
+        text: s.en,
+      }))
+
+    if (bounds.length === 0) {
+      app.showSubtitleToast('No timed sentences to regenerate', 'error')
+      return
+    }
+
+    resetEditingState()
+
+    const settings = useSettingsStore()
+    const jobId = nextTranscribeJobId++
+    console.info('[transcribe] regenerate texts', { jobId, audioPath, bounds: bounds.length })
+    activeTranscribeJobId.value = jobId
+    isTranscribing.value = true
+    transcribeProgress.value = 0
+    transcribeStatus.value = 'Regenerating subtitle texts'
+    transcribeError.value = null
+
+    try {
+      await invoke<number>('regenerate_subtitle_texts', {
+        audioPath,
+        bounds,
+        modelPath: currentModelPath.value ?? null,
+        whisperModel: settings.selectedWhisperModel,
+        modelDir: settings.modelDirectory || null,
+        jobId,
+      })
+    } catch (err) {
+      if (activeTranscribeJobId.value === jobId && currentAudioPath.value === audioPath) {
+        const message = String(err)
+        transcribeError.value = message
+        transcribeStatus.value = 'Transcription failed'
+        isTranscribing.value = false
+        activeTranscribeJobId.value = null
+        app.showSubtitleToast(message, 'error')
+      }
+    }
+  }
+
+  function applyRegenerateTextsDone(event: RegenerateTextsDoneEvent) {
+    const isCurrent = isCurrentTranscribeTarget(event.job_id, event.audio_path)
+    console.info('[transcribe] apply texts done', {
+      jobId: event.job_id,
+      audioPath: event.audio_path,
+      isCurrent,
+      updates: event.updates.length,
+    })
+    if (!isCurrent) return
+
+    const updatesById = new Map(event.updates.map(u => [u.id, u.text]))
+    let changedCount = 0
+    for (const sentence of sentences.value) {
+      const newText = updatesById.get(sentence.id)
+      if (newText !== undefined && newText !== sentence.en) {
+        sentence.en = newText
+        sentence.dirty = false
+        sentence.status = 'saved'
+        changedCount++
+      }
+    }
+
+    isTranscribing.value = false
+    transcribeProgress.value = 100
+    transcribeStatus.value = 'Subtitles ready'
+    activeTranscribeJobId.value = null
+
+    void persistCurrentCache(sentences.value)
+    if (changedCount > 0) {
+      app.showSubtitleToast(`重新识别了 ${changedCount} 句文本，录音已保留`)
+    } else {
+      app.showSubtitleToast('文本无变化，录音已保留')
+    }
+  }
+
   function isCurrentTranscribeTarget(jobId: number, audioPath: string): boolean {
     return activeTranscribeJobId.value === jobId && currentAudioPath.value === audioPath
   }
@@ -622,7 +735,7 @@ export const useTranscriptStore = defineStore('transcript', () => {
     cloneSentence, enterEditMode, cancelEdits, saveEdits,
     startEditing, finishEditing, updateDraft, splitSentence, alignSplitSentence,
     mergeWithPrev, mergeWithNext, isSentenceAligning,
-    loadSubtitles, saveSubtitles, startTranscribe, regenerateSubtitles,
-    isCurrentTranscribeTarget, applyTranscribeProgress, applyTranscribeDone, applyTranscribeError,
+    loadSubtitles, saveSubtitles, startTranscribe, regenerateSubtitles, regenerateSubtitleTexts,
+    isCurrentTranscribeTarget, applyTranscribeProgress, applyTranscribeDone, applyRegenerateTextsDone, applyTranscribeError,
   }
 })

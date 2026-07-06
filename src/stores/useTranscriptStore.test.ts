@@ -10,6 +10,7 @@ vi.mock('@tauri-apps/api/core', () => ({
 import {
   useTranscriptStore,
   type Sentence,
+  type RegenerateTextsDoneEvent,
   type TranscribeDoneEvent,
   type TranscribeErrorEvent,
   type TranscribeProgressEvent,
@@ -374,6 +375,115 @@ describe('useTranscriptStore', () => {
     expect(invokeMock).not.toHaveBeenCalled()
     expect(app.toast).toBe('Load an audio file before regenerating subtitles')
     expect(app.toastType).toBe('error')
+  })
+
+  it('regenerates subtitle texts by sending timed sentences as bounds', async () => {
+    const transcript = useTranscriptStore()
+    invokeMock.mockResolvedValue(21)
+    transcript.currentAudioPath = '/tmp/current.mp3'
+    transcript.sentences = [
+      sentence({ id: 7, en: 'Hello.', start_ms: 0, end_ms: 500 }),
+      sentence({ id: 8, en: 'World.', start_ms: 600, end_ms: 1100 }),
+    ]
+
+    await transcript.regenerateSubtitleTexts()
+
+    expect(transcript.isTranscribing).toBe(true)
+    expect(transcript.activeTranscribeJobId).toBe(1)
+    expect(invokeMock).toHaveBeenCalledWith('regenerate_subtitle_texts', {
+      audioPath: '/tmp/current.mp3',
+      bounds: [
+        { id: 7, start_ms: 0, end_ms: 500, text: 'Hello.' },
+        { id: 8, start_ms: 600, end_ms: 1100, text: 'World.' },
+      ],
+      modelPath: null,
+      whisperModel: 'whisper-base',
+      modelDir: null,
+      jobId: 1,
+    })
+  })
+
+  it('skips sentences without timestamps when regenerating subtitle texts', async () => {
+    const transcript = useTranscriptStore()
+    invokeMock.mockResolvedValue(22)
+    transcript.currentAudioPath = '/tmp/current.mp3'
+    transcript.sentences = [
+      sentence({ id: 7, en: 'Timed.', start_ms: 0, end_ms: 500 }),
+      sentence({ id: 8, en: 'Untimed.', start_ms: undefined, end_ms: undefined }),
+    ]
+
+    await transcript.regenerateSubtitleTexts()
+
+    expect(invokeMock).toHaveBeenCalledWith('regenerate_subtitle_texts', expect.objectContaining({
+      bounds: [{ id: 7, start_ms: 0, end_ms: 500, text: 'Timed.' }],
+    }))
+  })
+
+  it('does not regenerate subtitle texts when no timed sentences exist', async () => {
+    const transcript = useTranscriptStore()
+    const app = useAppStore()
+    transcript.currentAudioPath = '/tmp/current.mp3'
+    transcript.sentences = [sentence({ id: 7, en: 'Untimed.', start_ms: undefined, end_ms: undefined })]
+
+    await transcript.regenerateSubtitleTexts()
+
+    expect(invokeMock).not.toHaveBeenCalled()
+    expect(app.toast).toBe('No timed sentences to regenerate')
+    expect(app.toastType).toBe('error')
+  })
+
+  it('does not regenerate subtitle texts when no audio is loaded', async () => {
+    const transcript = useTranscriptStore()
+    const app = useAppStore()
+
+    await transcript.regenerateSubtitleTexts()
+
+    expect(invokeMock).not.toHaveBeenCalled()
+    expect(app.toast).toBe('Load an audio file before regenerating subtitle texts')
+    expect(app.toastType).toBe('error')
+  })
+
+  it('applies regenerated text updates and preserves unmatched sentences', () => {
+    const transcript = useTranscriptStore()
+    transcript.currentAudioPath = '/tmp/current.mp3'
+    transcript.activeTranscribeJobId = 5
+    transcript.isTranscribing = true
+    transcript.sentences = [
+      sentence({ id: 7, en: 'Old one.' }),
+      sentence({ id: 8, en: 'Old two.' }),
+    ]
+
+    const event: RegenerateTextsDoneEvent = {
+      job_id: 5,
+      audio_path: '/tmp/current.mp3',
+      updates: [{ id: 7, text: 'New one.' }],
+    }
+
+    transcript.applyRegenerateTextsDone(event)
+
+    expect(transcript.sentences[0]?.en).toBe('New one.')
+    expect(transcript.sentences[0]?.status).toBe('saved')
+    expect(transcript.sentences[0]?.dirty).toBe(false)
+    expect(transcript.sentences[1]?.en).toBe('Old two.')
+    expect(transcript.isTranscribing).toBe(false)
+    expect(transcript.activeTranscribeJobId).toBe(null)
+  })
+
+  it('ignores regenerated text updates for stale jobs', () => {
+    const transcript = useTranscriptStore()
+    transcript.currentAudioPath = '/tmp/current.mp3'
+    transcript.activeTranscribeJobId = 5
+    transcript.isTranscribing = true
+    transcript.sentences = [sentence({ id: 7, en: 'Old.' })]
+
+    transcript.applyRegenerateTextsDone({
+      job_id: 4,
+      audio_path: '/tmp/current.mp3',
+      updates: [{ id: 7, text: 'New.' }],
+    })
+
+    expect(transcript.sentences[0]?.en).toBe('Old.')
+    expect(transcript.isTranscribing).toBe(true)
   })
 
   it('ignores stale transcription progress and applies matching events', () => {

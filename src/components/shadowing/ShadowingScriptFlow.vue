@@ -33,6 +33,10 @@ const canRegenerateSubtitles = computed(() => (
   && !isBusy.value
   && !transcript.isTranscribing
 ))
+const canRegenerateSubtitleTexts = computed(() => (
+  canRegenerateSubtitles.value
+  && transcript.sentences.some(s => s.start_ms != null && s.end_ms != null)
+))
 
 function setItemRef(el: Element | ComponentPublicInstance | null, index: number) {
   itemRefs.value[index] = el && '$el' in el ? (el as ComponentPublicInstance).$el as HTMLElement : el as HTMLElement | null
@@ -59,6 +63,17 @@ function confirmRegenerateSubtitles() {
   if (!confirmed) return
 
   void transcript.regenerateSubtitles()
+}
+
+function confirmRegenerateSubtitleTexts() {
+  if (!canRegenerateSubtitleTexts.value) return
+
+  const confirmed = window.confirm(
+    '重新识别文本会保留时间边界和已保存录音，只重新生成每句文本。确定继续吗？',
+  )
+  if (!confirmed) return
+
+  void transcript.regenerateSubtitleTexts()
 }
 
 watch(() => player.positionMs, (positionMs) => {
@@ -106,6 +121,18 @@ watch(() => transcript.editingIndex, async (index) => {
           @click="confirmRegenerateSubtitles"
         >
           <Icon name="rotate-left" :size="13" />
+        </button>
+        <button
+          type="button"
+          class="h-6 w-6 rounded-md flex items-center justify-center transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          :class="app.theme === 'dark'
+            ? 'text-gray-300 hover:text-white hover:bg-white/10'
+            : 'text-gray-600 hover:text-black hover:bg-black/[0.06]'"
+          :disabled="!canRegenerateSubtitleTexts"
+          title="Regenerate texts (keep recordings)"
+          @click="confirmRegenerateSubtitleTexts"
+        >
+          <Icon name="sparkles" :size="13" />
         </button>
         <template v-if="transcript.isEditing">
           <button

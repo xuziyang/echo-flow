@@ -2,6 +2,7 @@ import { onBeforeUnmount, onMounted } from 'vue'
 import { listen } from '@tauri-apps/api/event'
 import {
   useTranscriptStore,
+  type RegenerateTextsDoneEvent,
   type TranscribeDoneEvent,
   type TranscribeErrorEvent,
   type TranscribeProgressEvent,
@@ -37,11 +38,20 @@ export function createTranscribeEventBindings(
         transcript.applyTranscribeDone(event.payload)
       })
 
+      const onTextsDone = await listenFn<RegenerateTextsDoneEvent>('transcribe-texts-done', (event) => {
+        console.info('[transcribe-texts-done] event received', {
+          jobId: event.payload.job_id,
+          audioPath: event.payload.audio_path,
+          updates: event.payload.updates.length,
+        })
+        transcript.applyRegenerateTextsDone(event.payload)
+      })
+
       const onError = await listenFn<TranscribeErrorEvent>('transcribe-error', (event) => {
         transcript.applyTranscribeError(event.payload)
       })
 
-      removeTranscribeListeners = [onProgress, onDone, onError]
+      removeTranscribeListeners = [onProgress, onDone, onTextsDone, onError]
       listenersInitialized = true
       listenersInitPromise = null
     })()

@@ -135,3 +135,28 @@ pub struct SplitAlignmentResult {
     pub left: AlignedRange,
     pub right: AlignedRange,
 }
+
+/// 重新识别文本时的单句约束：保留旧时间边界，重新生成文本。
+/// 旧文本在对齐失败时作为 fallback 返回。
+#[derive(Debug, Clone, Deserialize)]
+pub struct RegenerateTextBound {
+    pub id: i64,
+    pub start_ms: i64,
+    pub end_ms: i64,
+    pub text: String,
+}
+
+/// 重新识别文本的结果：新文本（或 fallback 旧文本）。
+#[derive(Debug, Clone, Serialize)]
+pub struct RegenerateTextUpdate {
+    pub id: i64,
+    pub text: String,
+}
+
+/// 重新识别文本完成事件
+#[derive(Debug, Clone, Serialize)]
+pub struct RegenerateTextsDoneEvent {
+    pub job_id: u64,
+    pub audio_path: String,
+    pub updates: Vec<RegenerateTextUpdate>,
+}

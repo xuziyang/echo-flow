@@ -36,6 +36,7 @@ import {
   Indent,
   Outdent,
   Box,
+  Sparkles,
   type LucideProps,
 } from 'lucide-vue-next'
 import { computed } from 'vue'
@@ -84,6 +85,7 @@ const icons: Record<string, unknown> = {
   globe: Globe,
   'code-compare': GitCompare,
   box: Box,
+  sparkles: Sparkles,
 }
 
 const iconComponent = computed(() => icons[props.name])

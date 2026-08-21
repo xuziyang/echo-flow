@@ -5,7 +5,6 @@ import { useFilesStore } from '../../stores/useFilesStore'
 import { usePlayerStore } from '../../stores/usePlayerStore'
 import { useTranscriptStore } from '../../stores/useTranscriptStore'
 import { useTextMask } from '../../composables/useTextMask'
-import { useConfirmDialog } from '../../composables/useConfirmDialog'
 import BarWave from '../common/BarWave.vue'
 import MaskableText from '../common/MaskableText.vue'
 import Icon from '../Icon.vue'
@@ -15,7 +14,6 @@ const files = useFilesStore()
 const player = usePlayerStore()
 const transcript = useTranscriptStore()
 const { maskText, toggleMask } = useTextMask()
-const confirmDialog = useConfirmDialog()
 
 const trackName = computed(() => {
   if (files.currentFile?.title) return files.currentFile.title
@@ -120,7 +118,9 @@ function onToggleMask() {
 }
 
 function onKeydown(e: KeyboardEvent) {
-  if (app.isSettingsOpen || confirmDialog.state.visible) return
+  if (app.isSettingsOpen) return
+  // 任意模态（确认 / 重生成对话框）打开时不响应快捷键
+  if (document.querySelector('.overlay')) return
   const tag = (e.target as HTMLElement).tagName
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
 

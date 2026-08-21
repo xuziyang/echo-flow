@@ -4,14 +4,12 @@ import { useAppStore } from '../../stores/useAppStore'
 import { usePlayerStore } from '../../stores/usePlayerStore'
 import { useRecordingStore } from '../../stores/useRecordingStore'
 import { useTranscriptStore } from '../../stores/useTranscriptStore'
-import { useConfirmDialog } from '../../composables/useConfirmDialog'
 import ShadowingWorkArea from './ShadowingWorkArea.vue'
 
 const app = useAppStore()
 const player = usePlayerStore()
 const recording = useRecordingStore()
 const transcript = useTranscriptStore()
-const confirmDialog = useConfirmDialog()
 let sentenceSwitchToken = 0
 
 const isBusy = computed(() => (
@@ -29,7 +27,9 @@ function playSentenceAtIndex(index: number) {
 }
 
 function onKeydown(e: KeyboardEvent) {
-  if (app.isSettingsOpen || confirmDialog.state.visible) return
+  if (app.isSettingsOpen) return
+  // 任意模态（确认 / 重生成对话框）打开时不响应快捷键
+  if (document.querySelector('.overlay')) return
   const tag = (e.target as HTMLElement).tagName
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
 

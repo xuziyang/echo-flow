@@ -330,6 +330,24 @@ describe('useTranscriptStore', () => {
     })
   })
 
+  it('regenerates subtitles with the selected regeneration model', async () => {
+    const transcript = useTranscriptStore()
+    invokeMock.mockResolvedValue(14)
+    transcript.currentAudioPath = '/tmp/current.mp3'
+    transcript.sentences = [sentence({ id: 7, en: 'Keep this until new subtitles arrive.' })]
+
+    await transcript.regenerateSubtitles('whisper-small')
+
+    expect(invokeMock).toHaveBeenCalledWith('transcribe_audio', {
+      audioPath: '/tmp/current.mp3',
+      modelPath: null,
+      whisperModel: 'whisper-small',
+      modelDir: null,
+      jobId: 1,
+      forceRegenerate: true,
+    })
+  })
+
   it('keeps existing subtitles when regeneration fails to start', async () => {
     const transcript = useTranscriptStore()
     invokeMock.mockImplementation((command: string) => {
@@ -398,6 +416,26 @@ describe('useTranscriptStore', () => {
       ],
       modelPath: null,
       whisperModel: 'whisper-base',
+      modelDir: null,
+      jobId: 1,
+    })
+  })
+
+  it('regenerates subtitle texts with the selected regeneration model', async () => {
+    const transcript = useTranscriptStore()
+    invokeMock.mockResolvedValue(23)
+    transcript.currentAudioPath = '/tmp/current.mp3'
+    transcript.sentences = [
+      sentence({ id: 7, en: 'Hello.', start_ms: 0, end_ms: 500 }),
+    ]
+
+    await transcript.regenerateSubtitleTexts('whisper-medium')
+
+    expect(invokeMock).toHaveBeenCalledWith('regenerate_subtitle_texts', {
+      audioPath: '/tmp/current.mp3',
+      bounds: [{ id: 7, start_ms: 0, end_ms: 500, text: 'Hello.' }],
+      modelPath: null,
+      whisperModel: 'whisper-medium',
       modelDir: null,
       jobId: 1,
     })

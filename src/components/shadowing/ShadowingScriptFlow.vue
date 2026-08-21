@@ -3,20 +3,46 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch, type ComponentP
 import { useAppStore } from '../../stores/useAppStore'
 import { usePlayerStore } from '../../stores/usePlayerStore'
 import { useRecordingStore } from '../../stores/useRecordingStore'
+import { useModelDownloadStore } from '../../stores/useModelDownloadStore'
+import { useSettingsStore, type WhisperModelType } from '../../stores/useSettingsStore'
 import { useTranscriptStore, type Sentence } from '../../stores/useTranscriptStore'
 import { getCurrentSubtitleIndex } from '../../composables/useSubtitleSync'
-import { useConfirmDialog } from '../../composables/useConfirmDialog'
 import Icon from '../Icon.vue'
 import ScriptFlowItem from './ScriptFlowItem.vue'
 
 const app = useAppStore()
 const player = usePlayerStore()
 const recording = useRecordingStore()
+const modelDownload = useModelDownloadStore()
+const settings = useSettingsStore()
 const transcript = useTranscriptStore()
-const { confirmDialog } = useConfirmDialog()
 
 const itemRefs = ref<Record<number, HTMLElement | null>>({})
 const menuOpen = ref(false)
+
+/* 重生成对话框：选择处理方式 + Whisper 模型 */
+type RegenerationAction = 'subtitles' | 'texts'
+const regenOpen = ref(false)
+const regenAction = ref<RegenerationAction>('subtitles')
+const regenModel = ref<WhisperModelType>(settings.selectedWhisperModel)
+
+const whisperModelOptions: Array<{ type: WhisperModelType; name: string }> = [
+  { type: 'whisper-tiny', name: 'Tiny' },
+  { type: 'whisper-base', name: 'Base' },
+  { type: 'whisper-small', name: 'Small' },
+  { type: 'whisper-medium', name: 'Medium' },
+]
+
+const selectedRegenModel = computed(() => {
+  if (modelDownload.isModelInstalled(regenModel.value)) return regenModel.value
+  return whisperModelOptions.find(m => modelDownload.isModelInstalled(m.type))?.type
+    ?? regenModel.value
+})
+const canConfirmRegen = computed(() => (
+  (regenAction.value === 'subtitles' ? canRegenerateSubtitles.value : canRegenerateSubtitleTexts.value)
+  && modelDownload.isModelInstalled(selectedRegenModel.value)
+  && !modelDownload.isDownloading
+))
 
 const counterLabel = computed(() => {
   const count = transcript.displaySentences.length
@@ -58,31 +84,31 @@ function selectSentence(index: number, sentence: Sentence) {
   }
 }
 
-function confirmRegenerateSubtitles() {
+function openRegenDialog(action: RegenerationAction) {
   menuOpen.value = false
   if (!canRegenerateSubtitles.value) return
-
-  confirmDialog({
-    title: '重新生成字幕？',
-    keep: ['音频文件本身'],
-    lose: ['该音频的全部录音', '所有未保存的字幕修改'],
-    note: '时间轴将全部重新切分。',
-    okText: '删除并重新生成',
-    onOk: () => void transcript.regenerateSubtitles(),
-  })
+  regenModel.value = selectedRegenModel.value
+  regenAction.value = action
+  regenOpen.value = true
 }
 
-function confirmRegenerateSubtitleTexts() {
-  menuOpen.value = false
-  if (!canRegenerateSubtitleTexts.value) return
+function confirmRegen() {
+  if (!canConfirmRegen.value) return
+  const action = regenAction.value
+  const whisperModel = selectedRegenModel.value
+  regenOpen.value = false
+  if (action === 'texts') {
+    void transcript.regenerateSubtitleTexts(whisperModel)
+  } else {
+    void transcript.regenerateSubtitles(whisperModel)
+  }
+}
 
-  confirmDialog({
-    title: '重新识别每句文字？',
-    keep: ['时间轴', '全部录音'],
-    lose: ['你对文字做过的手动修改'],
-    okText: '重新识别',
-    onOk: () => void transcript.regenerateSubtitleTexts(),
-  })
+function onRegenKeydown(e: KeyboardEvent) {
+  if (!regenOpen.value || e.key !== 'Escape') return
+  e.preventDefault()
+  e.stopPropagation()
+  regenOpen.value = false
 }
 
 function retryTranscribe() {
@@ -115,8 +141,24 @@ watch(() => transcript.editingIndex, async (index) => {
   itemRefs.value[index]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
 })
 
-onMounted(() => document.addEventListener('click', onDocumentClick))
-onUnmounted(() => document.removeEventListener('click', onDocumentClick))
+watch(() => settings.selectedWhisperModel, (model) => {
+  if (modelDownload.isModelInstalled(regenModel.value)) return
+  regenModel.value = model
+})
+
+watch(() => modelDownload.downloadedModels, () => {
+  regenModel.value = selectedRegenModel.value
+}, { deep: true })
+
+onMounted(() => {
+  void modelDownload.checkModels()
+  document.addEventListener('click', onDocumentClick)
+  window.addEventListener('keydown', onRegenKeydown, { capture: true })
+})
+onUnmounted(() => {
+  document.removeEventListener('click', onDocumentClick)
+  window.removeEventListener('keydown', onRegenKeydown, { capture: true })
+})
 </script>
 
 <template>
@@ -169,10 +211,10 @@ onUnmounted(() => document.removeEventListener('click', onDocumentClick))
       </template>
 
       <div v-show="menuOpen" class="pop-menu" style="top: 44px; right: 10px; min-width: 180px" @click.stop>
-        <button :disabled="!canRegenerateSubtitles" @click="confirmRegenerateSubtitles">
+        <button :disabled="!canRegenerateSubtitles" @click="openRegenDialog('subtitles')">
           <Icon name="rotate-left" :size="14" :stroke-width="1.8" /> 重新生成字幕<span class="k">重做分段</span>
         </button>
-        <button :disabled="!canRegenerateSubtitleTexts" @click="confirmRegenerateSubtitleTexts">
+        <button :disabled="!canRegenerateSubtitleTexts" @click="openRegenDialog('texts')">
           <Icon name="pen" :size="14" :stroke-width="1.8" /> 只重识别文本<span class="k">保留时间轴</span>
         </button>
       </div>
@@ -215,6 +257,68 @@ onUnmounted(() => document.removeEventListener('click', onDocumentClick))
       </template>
       <div v-else-if="!transcript.isTranscribing && !transcript.transcribeError" class="sub-empty">
         导入音频后自动生成字幕<br>点击句子可跳转播放
+      </div>
+    </div>
+
+    <!-- 重生成对话框：选择处理方式 + Whisper 模型 -->
+    <div v-if="regenOpen" class="overlay" @click.self="regenOpen = false">
+      <div class="dialog" style="width: 420px" role="dialog" aria-modal="true">
+        <h3>重新生成</h3>
+        <div class="note">选择处理方式和 Whisper 模型。</div>
+
+        <div class="opt-grid">
+          <button
+            type="button"
+            class="opt-card"
+            :class="{ active: regenAction === 'subtitles' }"
+            @click="regenAction = 'subtitles'"
+          >
+            <span class="t">重新生成字幕</span>
+            <span class="d">重新切分时间轴，适合字幕错位或分句混乱；会删除该音频的录音</span>
+          </button>
+          <button
+            type="button"
+            class="opt-card"
+            :class="{ active: regenAction === 'texts' }"
+            :disabled="!canRegenerateSubtitleTexts"
+            @click="regenAction = 'texts'"
+          >
+            <span class="t">只重识别文本</span>
+            <span class="d">保留时间轴与录音，只更新每句文字；不修正原有分句</span>
+          </button>
+        </div>
+
+        <div class="opt-grid">
+          <button
+            v-for="model in whisperModelOptions"
+            :key="model.type"
+            type="button"
+            class="opt-card"
+            :class="{ active: regenModel === model.type }"
+            :disabled="!modelDownload.isModelInstalled(model.type)"
+            @click="regenModel = model.type"
+          >
+            <span class="t">{{ model.name }}</span>
+            <span
+              class="d"
+              :style="modelDownload.isModelInstalled(model.type) ? 'color: var(--accent)' : ''"
+            >
+              {{ modelDownload.isModelInstalled(model.type) ? '已安装' : '未安装' }}
+            </span>
+          </button>
+        </div>
+
+        <div class="actions">
+          <button class="btn" @click="regenOpen = false">取消</button>
+          <button
+            class="btn"
+            :class="regenAction === 'subtitles' ? 'btn-danger' : 'btn-primary'"
+            :disabled="!canConfirmRegen"
+            @click="confirmRegen"
+          >
+            {{ regenAction === 'texts' ? '重新识别' : '删除并重新生成' }}
+          </button>
+        </div>
       </div>
     </div>
   </aside>

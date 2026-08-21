@@ -314,7 +314,7 @@ onUnmounted(() => {
                     :data-tip="modelDownload.isDownloading ? '同时只下载一个，请稍候' : null"
                     @click="requestDownload(model.type)"
                   >
-                    下载
+                    <Icon name="download" :size="13" :stroke-width="1.8" /> 下载
                   </button>
                   <button
                     v-else
@@ -322,7 +322,7 @@ onUnmounted(() => {
                     style="padding: 5px 10px; font-size: 12.5px"
                     @click="requestDelete(model.type)"
                   >
-                    删除
+                    <Icon name="trash" :size="13" :stroke-width="1.8" /> 删除
                   </button>
                 </div>
               </div>
@@ -352,7 +352,7 @@ onUnmounted(() => {
                     :data-tip="modelDownload.isDownloading ? '同时只下载一个，请稍候' : null"
                     @click="requestDownload(model.type)"
                   >
-                    下载
+                    <Icon name="download" :size="13" :stroke-width="1.8" /> 下载
                   </button>
                   <button
                     v-else
@@ -360,7 +360,7 @@ onUnmounted(() => {
                     style="padding: 5px 10px; font-size: 12.5px"
                     @click="requestDelete(model.type)"
                   >
-                    删除
+                    <Icon name="trash" :size="13" :stroke-width="1.8" /> 删除
                   </button>
                 </div>
               </div>

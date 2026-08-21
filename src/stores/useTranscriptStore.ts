@@ -4,7 +4,7 @@ import { ref, computed } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { useAppStore } from './useAppStore'
 import { usePlayerStore } from './usePlayerStore'
-import { useSettingsStore } from './useSettingsStore'
+import { useSettingsStore, type WhisperModelType } from './useSettingsStore'
 
 export interface Sentence {
   id: number
@@ -105,6 +105,7 @@ interface ApplicableSplitAlignment {
 interface StartTranscribeOptions {
   forceRegenerate?: boolean
   preserveExisting?: boolean
+  whisperModel?: WhisperModelType
 }
 
 export const useTranscriptStore = defineStore('transcript', () => {
@@ -523,11 +524,12 @@ export const useTranscriptStore = defineStore('transcript', () => {
     options: StartTranscribeOptions = {},
   ): Promise<void> {
     const settings = useSettingsStore()
+    const whisperModel = options.whisperModel ?? settings.selectedWhisperModel
     const jobId = nextTranscribeJobId++
     console.info('[transcribe] start', { jobId, audioPath })
     currentAudioPath.value = audioPath
     currentModelPath.value = modelPath ?? null
-    currentWhisperModel.value = settings.selectedWhisperModel
+    currentWhisperModel.value = whisperModel
     currentModelDir.value = settings.modelDirectory || null
     activeTranscribeJobId.value = jobId
     isTranscribing.value = true
@@ -543,7 +545,7 @@ export const useTranscriptStore = defineStore('transcript', () => {
       await invoke<number>('transcribe_audio', {
         audioPath,
         modelPath: modelPath ?? null,
-        whisperModel: settings.selectedWhisperModel,
+        whisperModel,
         modelDir: settings.modelDirectory || null,
         jobId,
         forceRegenerate: options.forceRegenerate ?? false,
@@ -560,7 +562,7 @@ export const useTranscriptStore = defineStore('transcript', () => {
     }
   }
 
-  async function regenerateSubtitles(): Promise<void> {
+  async function regenerateSubtitles(whisperModel?: WhisperModelType): Promise<void> {
     if (isTranscribing.value) return
 
     const audioPath = currentAudioPath.value
@@ -578,6 +580,7 @@ export const useTranscriptStore = defineStore('transcript', () => {
     await startTranscribe(audioPath, currentModelPath.value ?? undefined, {
       forceRegenerate: true,
       preserveExisting: true,
+      whisperModel,
     })
   }
 
@@ -585,7 +588,7 @@ export const useTranscriptStore = defineStore('transcript', () => {
    * 重新识别文本：保留时间边界和录音，只重新生成每句文本。
    * 跑完整 Whisper（保留上下文）+ Wav2Vec2 对齐，再用旧边界从对齐结果里切出新文本。
    */
-  async function regenerateSubtitleTexts(): Promise<void> {
+  async function regenerateSubtitleTexts(whisperModel?: WhisperModelType): Promise<void> {
     if (isTranscribing.value) return
 
     const audioPath = currentAudioPath.value
@@ -612,8 +615,11 @@ export const useTranscriptStore = defineStore('transcript', () => {
     resetEditingState()
 
     const settings = useSettingsStore()
+    const selectedWhisperModel = whisperModel ?? settings.selectedWhisperModel
     const jobId = nextTranscribeJobId++
     console.info('[transcribe] regenerate texts', { jobId, audioPath, bounds: bounds.length })
+    currentWhisperModel.value = selectedWhisperModel
+    currentModelDir.value = settings.modelDirectory || null
     activeTranscribeJobId.value = jobId
     isTranscribing.value = true
     transcribeProgress.value = 0
@@ -625,7 +631,7 @@ export const useTranscriptStore = defineStore('transcript', () => {
         audioPath,
         bounds,
         modelPath: currentModelPath.value ?? null,
-        whisperModel: settings.selectedWhisperModel,
+        whisperModel: selectedWhisperModel,
         modelDir: settings.modelDirectory || null,
         jobId,
       })

@@ -389,6 +389,18 @@ input[type=range]:disabled::-webkit-slider-thumb { background: var(--text2); }
 .meter { height: 6px; border-radius: 3px; background: var(--panel3); overflow: hidden; margin-bottom: 8px; }
 .meter i { display: block; height: 100%; background: var(--accent); width: 0%; transition: width .2s; }
 
+/* 对话框选项卡（重生成方式 / 模型选择） */
+.opt-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
+.opt-card {
+  border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px;
+  text-align: left; width: 100%; transition: .15s; background: var(--panel2);
+}
+.opt-card:hover:not(:disabled) { background: var(--panel3); }
+.opt-card.active { border-color: var(--accent); background: var(--accent-dim); }
+.opt-card:disabled { opacity: .45; cursor: not-allowed; }
+.opt-card .t { font-weight: 600; font-size: 13px; display: block; }
+.opt-card .d { font-size: 12px; color: var(--text2); display: block; margin-top: 2px; line-height: 1.5; }
+
 /* ============ 状态栏 ============ */
 .statusbar {
   height: 32px; flex: none; background: var(--panel); border-top: 1px solid var(--border);

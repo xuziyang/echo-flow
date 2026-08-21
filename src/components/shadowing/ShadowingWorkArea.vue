@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { useAppStore } from '../../stores/useAppStore'
 import { usePlayerStore } from '../../stores/usePlayerStore'
 import { useRecordingStore } from '../../stores/useRecordingStore'
@@ -64,24 +64,6 @@ function formatRecTime(s: number): string {
   return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}.${t}`
 }
 
-/* 循环菜单 */
-const loopMenuOpen = ref(false)
-function onLoopButtonClick() {
-  if (recording.activeLoopMode) {
-    void recording.stopPlayback()
-    return
-  }
-  loopMenuOpen.value = !loopMenuOpen.value
-}
-function startLoop(mode: 'original' | 'comparison') {
-  loopMenuOpen.value = false
-  if (mode === 'original') void recording.toggleOriginalLoop()
-  else void recording.toggleComparisonLoop()
-}
-function onDocumentClick() {
-  loopMenuOpen.value = false
-}
-
 function gotoSentence(delta: number) {
   if (isBusy.value) return
   const next = player.currentIndex + delta
@@ -90,7 +72,7 @@ function gotoSentence(delta: number) {
 }
 
 function onPlayOriginal() {
-  if (recording.activeLoopMode || recording.comparisonActive) {
+  if (recording.comparisonActive) {
     void recording.stopPlayback()
     return
   }
@@ -98,16 +80,14 @@ function onPlayOriginal() {
 }
 
 function onCompare() {
-  if (recording.comparisonActive || recording.activeLoopMode === 'comparison') {
+  if (recording.comparisonActive) {
     void recording.stopPlayback()
     return
   }
   void recording.playComparison()
 }
 
-onMounted(() => document.addEventListener('click', onDocumentClick))
 onUnmounted(() => {
-  document.removeEventListener('click', onDocumentClick)
   if (recTimer) clearInterval(recTimer)
 })
 </script>
@@ -153,11 +133,11 @@ onUnmounted(() => {
     <div class="ctl-bar" :class="{ recording: recording.isRecording }">
       <button
         class="ctl"
-        :disabled="!canPlayOriginal && !recording.activeLoopMode && !recording.comparisonActive"
+        :disabled="!canPlayOriginal && !recording.comparisonActive"
         @click="onPlayOriginal"
       >
-        <Icon :name="recording.activeLoopMode === 'original' ? 'stop' : 'play'" :size="15" :stroke-width="1.8" />
-        {{ recording.activeLoopMode === 'original' ? '停止' : '原音' }} <kbd>Space</kbd>
+        <Icon name="play" :size="15" :stroke-width="1.8" />
+        原音 <kbd>Space</kbd>
       </button>
       <button
         class="ctl"
@@ -176,24 +156,12 @@ onUnmounted(() => {
         :disabled="!canCompare && !recording.comparisonActive"
         @click="onCompare"
       >
-        <Icon :name="recording.activeLoopMode === 'comparison' ? 'stop' : 'code-compare'" :size="15" :stroke-width="1.8" />
-        {{ recording.activeLoopMode === 'comparison' ? '停止' : '对照' }} <kbd>C</kbd>
-      </button>
-      <button
-        class="ctl"
-        :class="{ 'loop-on': recording.activeLoopMode }"
-        @click.stop="onLoopButtonClick"
-      >
-        <Icon :name="recording.activeLoopMode ? 'stop' : 'repeat'" :size="15" :stroke-width="1.8" />
-        {{ recording.activeLoopMode ? '停止循环' : '循环 ▸' }}
+        <Icon name="code-compare" :size="15" :stroke-width="1.8" />
+        对照 <kbd>C</kbd>
       </button>
       <label class="chk">
         <input type="checkbox" v-model="recording.autoRecordEnabled">播完自动录
       </label>
-      <div v-show="loopMenuOpen" class="pop-menu" style="bottom: 56px" @click.stop>
-        <button :disabled="!canPlayOriginal" @click="startLoop('original')">原音循环</button>
-        <button :disabled="!canCompare" @click="startLoop('comparison')">对照循环</button>
-      </div>
     </div>
 
     <button class="back-link" @click="app.switchMode('listening')">

@@ -9,16 +9,13 @@ import { useSettingsStore, type WhisperModelType } from '../stores/useSettingsSt
 import { useModelDownloadStore, type ModelType } from '../stores/useModelDownloadStore'
 import Icon from '../components/Icon.vue'
 
-type SettingsSection = 'general' | 'audio' | 'downloads'
+type SettingsSection = 'general' | 'audio' | 'models' | 'appearance'
 
 interface ModelOption {
   type: ModelType
   name: string
-}
-
-interface WhisperModelOption {
-  type: WhisperModelType
-  name: string
+  size: string
+  desc: string
 }
 
 const app = useAppStore()
@@ -28,43 +25,32 @@ const activeSection = ref<SettingsSection>('general')
 const appCacheDirectory = ref('')
 const resolvedModelDirectory = ref('')
 
-const sections: Array<{
-  id: SettingsSection
-  label: string
-  icon: string
-}> = [
-  {
-    id: 'general',
-    label: 'General',
-    icon: 'gear',
-  },
-  {
-    id: 'audio',
-    label: 'Sound',
-    icon: 'microphone',
-  },
-  {
-    id: 'downloads',
-    label: 'Model Downloads',
-    icon: 'download',
-  },
+const sections: Array<{ id: SettingsSection; label: string }> = [
+  { id: 'general', label: '常规' },
+  { id: 'audio', label: '声音' },
+  { id: 'models', label: '模型' },
+  { id: 'appearance', label: '外观' },
 ]
+const sectionIds = sections.map(s => s.id)
 
-const whisperModels: WhisperModelOption[] = [
-  { type: 'whisper-tiny', name: 'Tiny (75MB)' },
-  { type: 'whisper-base', name: 'Base (142MB)' },
-  { type: 'whisper-small', name: 'Small (466MB)' },
-  { type: 'whisper-medium', name: 'Medium (1.5GB)' },
+const whisperModels: Array<Omit<ModelOption, 'type'> & { type: WhisperModelType }> = [
+  { type: 'whisper-tiny', name: 'Whisper Tiny', size: '75 MB', desc: '最快，精度较低' },
+  { type: 'whisper-base', name: 'Whisper Base', size: '142 MB', desc: '推荐：速度与精度平衡' },
+  { type: 'whisper-small', name: 'Whisper Small', size: '466 MB', desc: '更准，速度较慢' },
+  { type: 'whisper-medium', name: 'Whisper Medium', size: '1.5 GB', desc: '最准，需要较好的电脑' },
 ]
 
 const supportModels: ModelOption[] = [
-  { type: 'vad', name: 'Silero VAD (1.8MB)' },
-  { type: 'alignment', name: 'Wav2Vec2 (378MB)' },
+  { type: 'vad', name: '语音检测', size: '1.8 MB', desc: '找出音频里有人在说话的部分' },
+  { type: 'alignment', name: '时间对齐', size: '378 MB', desc: '把每句字幕对齐到精确时间' },
 ]
 
-const currentSection = computed(() => sections.find((section) => section.id === activeSection.value) ?? sections[0])
+const currentSectionLabel = computed(() => (
+  sections.find(section => section.id === activeSection.value)?.label ?? '设置'
+))
 
 let modelDirectoryCheckTimer: ReturnType<typeof setTimeout> | null = null
+const bundleQueue = ref<ModelType[]>([])
 
 function onKeydown(e: KeyboardEvent) {
   if (e.key !== 'Escape') return
@@ -74,7 +60,9 @@ function onKeydown(e: KeyboardEvent) {
 }
 
 function requestDownload(type: ModelType) {
-  void modelDownload.downloadModel(type)
+  void modelDownload.downloadModel(type).catch((error) => {
+    app.showSubtitleToast(typeof error === 'string' ? error : String(error), 'error')
+  })
 }
 
 function requestDelete(type: ModelType) {
@@ -82,12 +70,35 @@ function requestDelete(type: ModelType) {
 }
 
 function requestCancelDownload() {
+  bundleQueue.value = []
   void modelDownload.cancelDownload()
 }
 
 function setDefaultWhisperModel(type: WhisperModelType) {
   settings.selectedWhisperModel = type
 }
+
+/** 推荐配置一键下载：缺什么下什么，同时只下一个，自动排队 */
+function downloadBundle() {
+  const missing = (['whisper-base', 'vad', 'alignment'] as ModelType[])
+    .filter(type => !modelDownload.isModelInstalled(type))
+  if (!missing.length) {
+    app.showSubtitleToast('推荐配置已全部安装 ✓')
+    return
+  }
+  bundleQueue.value = missing
+  app.showSubtitleToast(`开始下载 ${missing.length} 个模型（同时只下一个，自动排队）`)
+  const [first] = bundleQueue.value
+  if (!modelDownload.isDownloading && first) requestDownload(first)
+}
+
+watch(() => modelDownload.isDownloading, (isDownloading) => {
+  if (isDownloading || bundleQueue.value.length === 0) return
+  // 上一个下载结束（完成或失败），继续队列中的下一个
+  bundleQueue.value.shift()
+  const next = bundleQueue.value[0]
+  if (next) requestDownload(next)
+})
 
 async function chooseModelFolder() {
   const selected = await open({
@@ -150,10 +161,18 @@ watch(() => settings.modelDirectory, () => {
   }, 300)
 })
 
+watch(() => app.settingsTab, (tab) => {
+  if (sectionIds.includes(tab as SettingsSection)) {
+    activeSection.value = tab as SettingsSection
+  }
+}, { immediate: true })
+
 onMounted(() => {
   void modelDownload.checkModels()
   void loadCacheDirectories()
   void refreshResolvedModelDirectory()
+  void settings.refreshAudioInputDevices()
+  void settings.refreshAudioOutputDevices()
   window.addEventListener('keydown', onKeydown, { capture: true })
 })
 
@@ -164,405 +183,217 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div
-    class="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6"
-    :class="app.theme === 'dark' ? 'bg-black/60 text-dark-text' : 'bg-zinc-950/30 text-light-text'"
-    @click.self="app.closeSettings()"
-  >
-    <section
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="settings-title"
-      class="flex h-[min(720px,calc(100vh-48px))] w-full max-w-[860px] overflow-hidden rounded-lg border shadow-2xl"
-      :class="app.theme === 'dark' ? 'bg-dark-card border-dark-border' : 'bg-white border-light-border'"
-      @click.stop
-    >
-      <aside
-        class="hidden w-60 flex-shrink-0 border-r p-3 sm:block"
-        :class="app.theme === 'dark' ? 'border-dark-border bg-dark-bg/60' : 'border-light-border bg-zinc-50'"
-      >
-        <div class="px-2 py-3">
-          <h2
-            id="settings-title"
-            class="text-base font-medium"
-            :class="app.theme === 'dark' ? 'text-white' : 'text-zinc-950'"
-          >
-            Settings
-          </h2>
-        </div>
-
-        <nav class="mt-3 space-y-1" aria-label="Settings sections">
-          <button
-            v-for="section in sections"
-            :key="section.id"
-            type="button"
-            class="flex w-full items-center gap-3 rounded px-3 py-2.5 text-left text-sm font-medium transition-colors"
-            :class="activeSection === section.id
-              ? (app.theme === 'dark' ? 'bg-white/10 text-white' : 'bg-zinc-900 text-white')
-              : (app.theme === 'dark' ? 'text-dark-subtext hover:bg-white/5 hover:text-white' : 'text-light-subtext hover:bg-zinc-100 hover:text-zinc-950')"
-            @click="activeSection = section.id"
-          >
-            <Icon :name="section.icon" />
-            <span class="min-w-0 truncate">{{ section.label }}</span>
-          </button>
-        </nav>
-      </aside>
-
-      <div class="flex min-w-0 flex-1 flex-col">
-        <header
-          class="flex flex-shrink-0 items-start justify-between gap-4 border-b px-5 py-4 sm:px-6"
-          :class="app.theme === 'dark' ? 'border-dark-border' : 'border-light-border'"
+  <div class="overlay" @click.self="app.closeSettings()">
+    <div class="settings" role="dialog" aria-modal="true" @click.stop>
+      <nav class="set-nav">
+        <button
+          v-for="section in sections"
+          :key="section.id"
+          :class="{ active: activeSection === section.id }"
+          @click="activeSection = section.id"
         >
-          <div class="min-w-0">
-            <h2
-              class="text-base font-medium"
-              :class="app.theme === 'dark' ? 'text-white' : 'text-zinc-950'"
-            >
-              {{ currentSection.label }}
-            </h2>
-          </div>
+          {{ section.label }}
+        </button>
+      </nav>
 
-          <button
-            type="button"
-            class="rounded p-2 transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500"
-            :class="app.theme === 'dark' ? 'text-dark-subtext hover:bg-white/10 hover:text-white' : 'text-light-subtext hover:bg-zinc-100 hover:text-zinc-950'"
-            aria-label="Close settings"
-            @click="app.closeSettings()"
-          >
-            <Icon name="xmark" />
+      <div class="set-body">
+        <div class="set-head">
+          <span class="t">设置 · {{ currentSectionLabel }}</span>
+          <div class="spacer"></div>
+          <button class="icon-btn" data-tip="关闭（Esc）" @click="app.closeSettings()">
+            <Icon name="xmark" :size="15" :stroke-width="1.8" />
           </button>
-        </header>
-
-        <div class="border-b px-5 py-3 sm:hidden" :class="app.theme === 'dark' ? 'border-dark-border' : 'border-light-border'">
-          <div class="grid grid-cols-3 gap-2">
-            <button
-              v-for="section in sections"
-              :key="section.id"
-              type="button"
-              class="flex items-center justify-center gap-1.5 rounded px-2 py-2 text-xs font-medium transition-colors"
-              :class="activeSection === section.id
-                ? (app.theme === 'dark' ? 'bg-white/10 text-white' : 'bg-zinc-900 text-white')
-                : (app.theme === 'dark' ? 'text-dark-subtext hover:bg-white/5 hover:text-white' : 'text-light-subtext hover:bg-zinc-100 hover:text-zinc-950')"
-              @click="activeSection = section.id"
-            >
-              <Icon :name="section.icon" :size="14" />
-              <span class="truncate">{{ section.label }}</span>
-            </button>
-          </div>
         </div>
 
-        <div class="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-6">
-          <div v-if="activeSection === 'general'" class="space-y-5">
-            <section
-              class="overflow-hidden rounded-lg border"
-              :class="app.theme === 'dark' ? 'border-dark-border bg-dark-bg/40' : 'border-light-border bg-zinc-50'"
-            >
-              <div class="flex items-center gap-4 px-5 py-5">
-                <Icon
-                  name="box"
-                  class="flex-shrink-0"
-                  :size="24"
-                  :class="app.theme === 'dark' ? 'text-white' : 'text-zinc-950'"
-                />
-                <div class="min-w-0 flex-1">
-                  <h3
-                    class="truncate text-sm font-medium"
-                    :class="app.theme === 'dark' ? 'text-white' : 'text-zinc-950'"
-                  >
-                    Model Folder
-                  </h3>
-                  <p
-                    class="mt-1 truncate text-xs"
-                    :class="app.theme === 'dark' ? 'text-dark-subtext' : 'text-slate-500'"
-                  >
-                    {{ resolvedModelDirectory || settings.modelDirectory || 'Loading...' }}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border shadow-sm transition-colors"
-                  :class="app.theme === 'dark'
-                    ? 'border-gray-700 bg-dark-card text-white hover:bg-white/10'
-                    : 'border-slate-200 bg-white text-zinc-950 hover:bg-slate-50'"
-                  aria-label="Open Folder"
-                  title="Open Folder"
-                  @click="openModelFolder()"
-                >
-                  <Icon name="folder" :size="20" />
+        <div class="set-content">
+          <!-- 常规 -->
+          <div v-show="activeSection === 'general'">
+            <div class="field">
+              <div class="lab">模型目录</div>
+              <div class="rowline">
+                <div class="path-box">{{ resolvedModelDirectory || settings.modelDirectory || '加载中…' }}</div>
+                <button class="btn" @click="openModelFolder()">
+                  <Icon name="folder" :size="14" :stroke-width="1.8" /> 打开文件夹
                 </button>
-                <button
-                  type="button"
-                  class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border shadow-sm transition-colors"
-                  :class="app.theme === 'dark'
-                    ? 'border-gray-700 bg-dark-card text-white hover:bg-white/10'
-                    : 'border-slate-200 bg-white text-zinc-950 hover:bg-slate-50'"
-                  aria-label="Change"
-                  title="Change"
-                  @click="chooseModelFolder()"
-                >
-                  <Icon name="gear" :size="20" />
+                <button class="btn" @click="chooseModelFolder()">更换…</button>
+              </div>
+            </div>
+            <div class="field">
+              <div class="lab">缓存目录</div>
+              <div class="rowline">
+                <div class="path-box">{{ appCacheDirectory || '加载中…' }}</div>
+                <button class="btn" @click="openAppCacheFolder()">
+                  <Icon name="folder" :size="14" :stroke-width="1.8" /> 打开文件夹
                 </button>
               </div>
-            </section>
-
-            <section
-              class="overflow-hidden rounded-lg border"
-              :class="app.theme === 'dark' ? 'border-dark-border bg-dark-bg/40' : 'border-light-border bg-zinc-50'"
-            >
-              <div class="flex items-center gap-4 px-5 py-5">
-                <Icon
-                  name="folder"
-                  class="flex-shrink-0"
-                  :size="24"
-                  :class="app.theme === 'dark' ? 'text-white' : 'text-zinc-950'"
-                />
-                <div class="min-w-0 flex-1">
-                  <h3
-                    class="truncate text-sm font-medium"
-                    :class="app.theme === 'dark' ? 'text-white' : 'text-zinc-950'"
-                  >
-                    Cache Folder
-                  </h3>
-                  <p
-                    class="mt-1 truncate text-xs"
-                    :class="app.theme === 'dark' ? 'text-dark-subtext' : 'text-slate-500'"
-                  >
-                    {{ appCacheDirectory || 'Loading...' }}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border shadow-sm transition-colors"
-                  :class="app.theme === 'dark'
-                    ? 'border-gray-700 bg-dark-card text-white hover:bg-white/10'
-                    : 'border-slate-200 bg-white text-zinc-950 hover:bg-slate-50'"
-                  aria-label="Open Cache Folder"
-                  title="Open Cache Folder"
-                  @click="openAppCacheFolder()"
-                >
-                  <Icon name="folder" :size="20" />
-                </button>
-              </div>
-            </section>
-
+            </div>
           </div>
 
-          <div v-else-if="activeSection === 'audio'" class="space-y-5">
-            <section
-              class="rounded-lg border p-4"
-              :class="app.theme === 'dark' ? 'border-dark-border bg-dark-bg/40' : 'border-light-border bg-zinc-50'"
-            >
-              <label
-                class="block text-xs font-medium"
-                :class="app.theme === 'dark' ? 'text-brand-400' : 'text-gray-500'"
-              >
-                Record Device
-              </label>
-              <div class="relative mt-3">
-                <select
-                  v-model="settings.selectedInputId"
-                  class="w-full appearance-none rounded-lg border p-3 outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-brand-500"
-                  :class="app.theme === 'dark' ? 'bg-dark-bg border-gray-700 text-white' : 'bg-white border-gray-300 text-black'"
-                >
-                  <option value="">System default record device</option>
-                  <option v-if="settings.audioInputDevices.length === 0" value="" disabled>No microphones found</option>
-                  <option v-for="device in settings.audioInputDevices" :key="device.deviceId" :value="device.deviceId">
-                    {{ device.label }}
-                  </option>
-                </select>
-                <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-gray-500">
-                  <Icon name="microphone" class="text-xs" />
-                </div>
-              </div>
-            </section>
-
-            <section
-              class="rounded-lg border p-4"
-              :class="app.theme === 'dark' ? 'border-dark-border bg-dark-bg/40' : 'border-light-border bg-zinc-50'"
-            >
-              <label
-                class="block text-xs font-medium"
-                :class="app.theme === 'dark' ? 'text-brand-400' : 'text-gray-500'"
-              >
-                Playback Device
-              </label>
-              <div class="relative mt-3">
-                <select
-                  v-model="settings.selectedOutputId"
-                  class="w-full appearance-none rounded-lg border p-3 outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-brand-500"
-                  :class="app.theme === 'dark' ? 'bg-dark-bg border-gray-700 text-white' : 'bg-white border-gray-300 text-black'"
-                >
-                  <option value="">System default playback device</option>
-                  <option v-if="settings.audioOutputDevices.length === 0" value="" disabled>No speakers found</option>
-                  <option v-for="device in settings.audioOutputDevices" :key="device.deviceId" :value="device.deviceId">
-                    {{ device.label }}
-                  </option>
-                </select>
-                <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-gray-500">
-                  <Icon name="volume-high" class="text-xs" />
-                </div>
-              </div>
-            </section>
+          <!-- 声音 -->
+          <div v-show="activeSection === 'audio'">
+            <div class="field">
+              <div class="lab">录音设备</div>
+              <div class="desc">设备拔掉后自动回退到「系统默认」</div>
+              <select v-model="settings.selectedInputId" class="dev">
+                <option value="">系统默认 — 录音设备</option>
+                <option v-if="settings.audioInputDevices.length === 0" value="" disabled>未检测到麦克风</option>
+                <option v-for="device in settings.audioInputDevices" :key="device.deviceId" :value="device.deviceId">
+                  {{ device.label }}
+                </option>
+              </select>
+            </div>
+            <div class="field">
+              <div class="lab">播放设备</div>
+              <div class="desc">设备拔掉后自动回退到「系统默认」</div>
+              <select v-model="settings.selectedOutputId" class="dev">
+                <option value="">系统默认 — 播放设备</option>
+                <option v-if="settings.audioOutputDevices.length === 0" value="" disabled>未检测到扬声器</option>
+                <option v-for="device in settings.audioOutputDevices" :key="device.deviceId" :value="device.deviceId">
+                  {{ device.label }}
+                </option>
+              </select>
+            </div>
           </div>
 
-          <div v-else class="space-y-5">
-            <section
-              class="rounded-lg border p-4"
-              :class="app.theme === 'dark' ? 'border-dark-border bg-dark-bg/40' : 'border-light-border bg-zinc-50'"
-            >
-              <h3
-                class="text-xs font-medium"
-                :class="app.theme === 'dark' ? 'text-brand-400' : 'text-gray-500'"
-              >
-                Whisper Models
-              </h3>
-              <div class="mt-3 space-y-2">
-                <div
-                  v-for="model in whisperModels"
-                  :key="model.type"
-                  class="flex items-center justify-between gap-3 rounded-lg p-3"
-                  :class="app.theme === 'dark' ? 'bg-dark-bg' : 'bg-white'"
-                >
-                  <span class="text-xs" :class="app.theme === 'dark' ? 'text-white' : 'text-black'">{{ model.name }}</span>
-                  <div class="flex items-center gap-2">
-                    <span
-                      v-if="modelDownload.isModelInstalled(model.type) && settings.selectedWhisperModel === model.type"
-                      class="rounded bg-sky-500/15 px-2 py-1 text-xs text-sky-500 ring-1 ring-sky-500/25"
-                    >
-                      Default
-                    </span>
-                    <button
-                      v-else-if="modelDownload.isModelInstalled(model.type)"
-                      type="button"
-                      class="rounded-md px-3 py-1 text-xs transition-colors"
-                      :class="app.theme === 'dark' ? 'text-dark-subtext hover:bg-white/10 hover:text-white' : 'text-light-subtext hover:bg-zinc-100 hover:text-zinc-950'"
-                      @click="setDefaultWhisperModel(model.type)"
-                    >
-                      Set default
-                    </button>
-                    <span v-if="modelDownload.isModelInstalled(model.type)" class="text-xs text-green-500">Installed</span>
-                    <button
-                      v-if="modelDownload.downloadingType === model.type"
-                      type="button"
-                      class="rounded-md px-3 py-1 text-xs text-red-500 transition-colors hover:bg-red-100"
-                      @click="requestCancelDownload()"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      v-else-if="!modelDownload.isModelInstalled(model.type)"
-                      type="button"
-                      :disabled="modelDownload.isDownloading"
-                      class="rounded-md bg-brand-500 px-3 py-1 text-xs text-white transition-colors hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-50"
-                      @click="requestDownload(model.type)"
-                    >
-                      Download
-                    </button>
-                    <button
-                      v-else
-                      type="button"
-                      class="rounded-md px-3 py-1 text-xs text-red-500 transition-colors hover:bg-red-100"
-                      @click="requestDelete(model.type)"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </section>
+          <!-- 模型 -->
+          <div v-show="activeSection === 'models'">
+            <div v-if="!modelDownload.isModelInstalled('alignment')" class="warn-strip">
+              <Icon name="alert" :size="16" :stroke-width="1.8" style="flex: none" />
+              还缺「时间对齐」模型，拆句后无法精确对齐时间（可先用估算时间）。
+            </div>
 
-            <section
-              class="rounded-lg border p-4"
-              :class="app.theme === 'dark' ? 'border-dark-border bg-dark-bg/40' : 'border-light-border bg-zinc-50'"
-            >
-              <h3
-                class="text-xs font-medium"
-                :class="app.theme === 'dark' ? 'text-brand-400' : 'text-gray-500'"
-              >
-                Support Models
-              </h3>
-              <div class="mt-3 space-y-2">
-                <div
-                  v-for="model in supportModels"
-                  :key="model.type"
-                  class="flex items-center justify-between gap-3 rounded-lg p-3"
-                  :class="app.theme === 'dark' ? 'bg-dark-bg' : 'bg-white'"
-                >
-                  <span class="text-xs" :class="app.theme === 'dark' ? 'text-white' : 'text-black'">{{ model.name }}</span>
-                  <div class="flex items-center gap-2">
-                    <span v-if="modelDownload.isModelInstalled(model.type)" class="text-xs text-green-500">Installed</span>
-                    <button
-                      v-if="modelDownload.downloadingType === model.type"
-                      type="button"
-                      class="rounded-md px-3 py-1 text-xs text-red-500 transition-colors hover:bg-red-100"
-                      @click="requestCancelDownload()"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      v-else-if="!modelDownload.isModelInstalled(model.type)"
-                      type="button"
-                      :disabled="modelDownload.isDownloading"
-                      class="rounded-md bg-brand-500 px-3 py-1 text-xs text-white transition-colors hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-50"
-                      @click="requestDownload(model.type)"
-                    >
-                      Download
-                    </button>
-                    <button
-                      v-else
-                      type="button"
-                      class="rounded-md px-3 py-1 text-xs text-red-500 transition-colors hover:bg-red-100"
-                      @click="requestDelete(model.type)"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </div>
+            <div class="bundle">
+              <div>
+                <div class="t">推荐配置，一键下载</div>
+                <div class="d">Base + 语音检测 + 时间对齐 · 缺什么下什么</div>
               </div>
-            </section>
+              <div class="spacer"></div>
+              <button class="btn btn-primary" :disabled="modelDownload.isDownloading" @click="downloadBundle">
+                <Icon name="download" :size="14" :stroke-width="1.8" /> 全部下载
+              </button>
+            </div>
 
-            <section
-              v-if="modelDownload.isDownloading"
-              class="rounded-lg border p-4"
-              :class="app.theme === 'dark' ? 'border-gray-700 bg-dark-bg' : 'border-gray-200 bg-gray-50'"
-            >
-              <div class="mb-2 flex items-center justify-between">
-                <span class="text-xs" :class="app.theme === 'dark' ? 'text-white' : 'text-black'">Downloading...</span>
-                <div class="flex items-center gap-3">
-                  <span class="text-xs text-gray-500">{{ modelDownload.downloadProgressPercent.toFixed(0) }}%</span>
+            <div class="field">
+              <div class="lab">
+                Whisper 识别模型
+                <span style="font-weight: 400; color: var(--text2); font-size: 12.5px">（单选设为默认）</span>
+              </div>
+              <div>
+                <div v-for="model in whisperModels" :key="model.type" class="model-row">
+                  <input
+                    type="radio"
+                    name="whisper-model"
+                    :checked="settings.selectedWhisperModel === model.type"
+                    :disabled="!modelDownload.isModelInstalled(model.type)"
+                    :data-tip="modelDownload.isModelInstalled(model.type) ? null : '安装后才能设为默认'"
+                    @change="setDefaultWhisperModel(model.type)"
+                  >
+                  <span class="info">
+                    <span class="n">{{ model.name }}<span class="sz">{{ model.size }}</span></span>
+                    <span class="d">{{ model.desc }}</span>
+                  </span>
+                  <span
+                    v-if="modelDownload.isModelInstalled(model.type)"
+                    class="m-status"
+                    :class="{ default: settings.selectedWhisperModel === model.type }"
+                  >
+                    {{ settings.selectedWhisperModel === model.type ? '已安装 · 默认' : '✓ 已安装' }}
+                  </span>
+                  <div v-if="modelDownload.downloadingType === model.type" class="m-dl">
+                    <div class="meter"><i :style="{ width: `${modelDownload.downloadProgressPercent}%` }"></i></div>
+                    <div class="row">
+                      <span class="pct">{{ modelDownload.downloadProgressPercent.toFixed(0) }}%</span>
+                      <button class="btn" style="padding: 3px 9px; font-size: 12px" @click="requestCancelDownload()">取消</button>
+                    </div>
+                  </div>
                   <button
-                    type="button"
-                    class="rounded-md px-3 py-1 text-xs text-red-500 transition-colors hover:bg-red-100"
-                    @click="requestCancelDownload()"
+                    v-else-if="!modelDownload.isModelInstalled(model.type)"
+                    class="btn"
+                    style="padding: 5px 10px; font-size: 12.5px"
+                    :disabled="modelDownload.isDownloading"
+                    :data-tip="modelDownload.isDownloading ? '同时只下载一个，请稍候' : null"
+                    @click="requestDownload(model.type)"
                   >
-                    Cancel
+                    下载
+                  </button>
+                  <button
+                    v-else
+                    class="btn"
+                    style="padding: 5px 10px; font-size: 12.5px"
+                    @click="requestDelete(model.type)"
+                  >
+                    删除
                   </button>
                 </div>
               </div>
-              <div class="h-2 w-full overflow-hidden rounded-full" :class="app.theme === 'dark' ? 'bg-gray-700' : 'bg-gray-200'">
-                <div
-                  class="h-full bg-brand-500 transition-all duration-300"
-                  :style="{ width: `${modelDownload.downloadProgressPercent}%` }"
-                ></div>
+            </div>
+
+            <div class="field">
+              <div class="lab">辅助模型</div>
+              <div>
+                <div v-for="model in supportModels" :key="model.type" class="model-row">
+                  <span class="info">
+                    <span class="n">{{ model.name }}<span class="sz">{{ model.size }}</span></span>
+                    <span class="d">{{ model.desc }}</span>
+                  </span>
+                  <span v-if="modelDownload.isModelInstalled(model.type)" class="m-status">✓ 已安装</span>
+                  <div v-if="modelDownload.downloadingType === model.type" class="m-dl">
+                    <div class="meter"><i :style="{ width: `${modelDownload.downloadProgressPercent}%` }"></i></div>
+                    <div class="row">
+                      <span class="pct">{{ modelDownload.downloadProgressPercent.toFixed(0) }}%</span>
+                      <button class="btn" style="padding: 3px 9px; font-size: 12px" @click="requestCancelDownload()">取消</button>
+                    </div>
+                  </div>
+                  <button
+                    v-else-if="!modelDownload.isModelInstalled(model.type)"
+                    class="btn"
+                    style="padding: 5px 10px; font-size: 12.5px"
+                    :disabled="modelDownload.isDownloading"
+                    :data-tip="modelDownload.isDownloading ? '同时只下载一个，请稍候' : null"
+                    @click="requestDownload(model.type)"
+                  >
+                    下载
+                  </button>
+                  <button
+                    v-else
+                    class="btn"
+                    style="padding: 5px 10px; font-size: 12.5px"
+                    @click="requestDelete(model.type)"
+                  >
+                    删除
+                  </button>
+                </div>
               </div>
-            </section>
+            </div>
+          </div>
+
+          <!-- 外观 -->
+          <div v-show="activeSection === 'appearance'">
+            <div class="field">
+              <div class="lab">主题</div>
+              <div class="rowline">
+                <button class="btn" :class="{ 'btn-primary': app.theme === 'dark' }" @click="app.theme = 'dark'">
+                  ☾ 深色（推荐长时间练习）
+                </button>
+                <button class="btn" :class="{ 'btn-primary': app.theme === 'light' }" @click="app.theme = 'light'">
+                  ☀ 浅色
+                </button>
+              </div>
+            </div>
+            <div class="field">
+              <div class="lab">字体</div>
+              <div class="desc">
+                全站文字使用「霞鹜文楷 Lite」（LXGW WenKai Lite，SIL OFL 1.1 开源授权），
+                中文 / 英文 / 数字统一楷体质感，通过 CDN 按字符分片加载。
+              </div>
+            </div>
           </div>
         </div>
 
-        <footer
-          class="flex flex-shrink-0 justify-end border-t px-5 py-4 sm:px-6"
-          :class="app.theme === 'dark' ? 'border-dark-border' : 'border-light-border'"
-        >
-          <button
-            type="button"
-            class="rounded-lg px-6 py-2 font-medium transition-colors"
-            :class="app.theme === 'dark' ? 'bg-white text-black hover:bg-gray-200' : 'bg-black text-white hover:bg-gray-800'"
-            @click="app.closeSettings()"
-          >
-            Done
-          </button>
-        </footer>
+        <div class="set-foot">
+          <button class="btn btn-primary" @click="app.closeSettings()">完成</button>
+        </div>
       </div>
-    </section>
+    </div>
   </div>
 </template>

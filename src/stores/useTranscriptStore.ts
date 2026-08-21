@@ -250,13 +250,14 @@ export const useTranscriptStore = defineStore('transcript', () => {
     return values.length ? Math.max(...values) : undefined
   }
 
-  function enterEditMode() {
+  function enterEditMode(index?: number) {
     if (sentences.value.length === 0) return
 
     isEditing.value = true
     resetSentenceIdCounter()
     const player = usePlayerStore()
-    editingIndex.value = Math.max(0, Math.min(player.currentIndex, sentences.value.length - 1))
+    const targetIndex = index ?? player.currentIndex
+    editingIndex.value = Math.max(0, Math.min(targetIndex, sentences.value.length - 1))
     draftSentences.value = sentences.value.map(cloneSentence)
     if (draftSentences.value[editingIndex.value]) {
       draftSentences.value[editingIndex.value].status = 'editing'

@@ -180,6 +180,7 @@ export const useFilesStore = defineStore('files', () => {
     currentFile,
     openFile,
     openRecentFile,
+    loadAudioFile,
     removeRecentFile,
     formatDuration,
     formatOpenedAt,

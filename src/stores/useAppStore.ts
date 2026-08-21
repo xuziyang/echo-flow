@@ -33,6 +33,7 @@ function savePersistedTheme(theme: AppTheme) {
 export const useAppStore = defineStore('app', () => {
   const mode = ref<AppMode>('listening')
   const isSettingsOpen = ref(false)
+  const settingsTab = ref('general')
   const theme = ref<AppTheme>(loadPersistedTheme())
   const showSidebar = ref(true)
   const currentTitle = ref('Lesson 1: Mastering Daily Greetings')
@@ -44,7 +45,10 @@ export const useAppStore = defineStore('app', () => {
 
   function toggleTheme() { theme.value = theme.value === 'dark' ? 'light' : 'dark' }
   function switchMode(m: AppMode) { mode.value = m }
-  function openSettings() { isSettingsOpen.value = true }
+  function openSettings(tab?: string) {
+    if (tab) settingsTab.value = tab
+    isSettingsOpen.value = true
+  }
   function closeSettings() { isSettingsOpen.value = false }
   function toggleSidebar() { showSidebar.value = !showSidebar.value }
   function showSubtitleToast(message: string, type: ToastType = 'success') {
@@ -57,6 +61,6 @@ export const useAppStore = defineStore('app', () => {
     }, 2200)
   }
 
-  return { mode, isSettingsOpen, theme, showSidebar, currentTitle, toast, toastType,
+  return { mode, isSettingsOpen, settingsTab, theme, showSidebar, currentTitle, toast, toastType,
            toggleTheme, switchMode, openSettings, closeSettings, toggleSidebar, showSubtitleToast }
 })

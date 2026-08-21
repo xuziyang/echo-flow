@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useAppStore } from './stores/useAppStore'
+import { usePlayerStore } from './stores/usePlayerStore'
 import { usePlaybackSync } from './composables/usePlaybackSync'
 import { useTranscribeEvents } from './composables/useTranscribeEvents'
 import { useWaveformPreviewEvents } from './composables/useWaveformPreviewEvents'
@@ -8,12 +9,17 @@ import { useAudioDeviceEvents } from './composables/useAudioDeviceEvents'
 import { useAudioStreamEvents } from './composables/useAudioStreamEvents'
 import TitleBar from './components/layout/TitleBar.vue'
 import AppSidebar from './components/layout/AppSidebar.vue'
+import StatusBar from './components/layout/StatusBar.vue'
 import SubtitleToast from './components/layout/SubtitleToast.vue'
+import ConfirmDialog from './components/common/ConfirmDialog.vue'
+import WelcomeView from './views/WelcomeView.vue'
 import ListeningView from './components/listening/ListeningView.vue'
 import ShadowingView from './components/shadowing/ShadowingView.vue'
+import ShadowingScriptFlow from './components/shadowing/ShadowingScriptFlow.vue'
 import SettingsView from './views/SettingsView.vue'
 
 const app = useAppStore()
+const player = usePlayerStore()
 usePlaybackSync()
 useTranscribeEvents()
 useWaveformPreviewEvents()
@@ -23,20 +29,20 @@ useAudioStreamEvents()
 </script>
 
 <template>
-  <div class="h-screen w-screen overflow-hidden flex flex-col select-none transition-colors duration-300"
-       :class="[
-         app.theme === 'dark' ? 'text-dark-text bg-dark-bg' : 'text-light-text bg-light-bg',
-         app.theme
-       ]">
+  <div class="app-root h-screen w-screen overflow-hidden flex flex-col select-none" :class="app.theme">
     <TitleBar />
-    <div class="flex-1 flex overflow-hidden relative w-full">
+    <div class="main">
       <AppSidebar />
-      <main class="flex-1 flex overflow-hidden relative">
-        <ListeningView v-if="app.mode === 'listening'" />
-        <ShadowingView v-if="app.mode === 'shadowing'" />
+      <main class="workspace">
+        <WelcomeView v-if="!player.currentPath" />
+        <ListeningView v-else-if="app.mode === 'listening'" />
+        <ShadowingView v-else />
       </main>
+      <ShadowingScriptFlow />
     </div>
+    <StatusBar />
     <SettingsView v-if="app.isSettingsOpen" />
+    <ConfirmDialog />
     <SubtitleToast />
   </div>
 </template>

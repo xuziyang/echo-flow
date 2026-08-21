@@ -1,21 +1,136 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted } from 'vue'
+import { computed, onMounted, onUnmounted } from 'vue'
 import { useAppStore } from '../../stores/useAppStore'
+import { useFilesStore } from '../../stores/useFilesStore'
 import { usePlayerStore } from '../../stores/usePlayerStore'
-import PlayerCard from './PlayerCard.vue'
-import ShadowingScriptFlow from '../shadowing/ShadowingScriptFlow.vue'
+import { useTranscriptStore } from '../../stores/useTranscriptStore'
+import { useTextMask } from '../../composables/useTextMask'
+import { useConfirmDialog } from '../../composables/useConfirmDialog'
+import BarWave from '../common/BarWave.vue'
+import MaskableText from '../common/MaskableText.vue'
 import Icon from '../Icon.vue'
 
 const app = useAppStore()
+const files = useFilesStore()
 const player = usePlayerStore()
+const transcript = useTranscriptStore()
+const { maskText, toggleMask } = useTextMask()
+const confirmDialog = useConfirmDialog()
+
+const trackName = computed(() => {
+  if (files.currentFile?.title) return files.currentFile.title
+  if (!player.currentPath) return '未打开文件'
+  const parts = player.currentPath.split(/[\\/]/)
+  return parts[parts.length - 1] || '未知文件'
+})
+
+const statusLabel = computed(() => {
+  if (transcript.isTranscribing) return `正在生成字幕 ${Math.round(transcript.transcribeProgress)}%`
+  if (transcript.transcribeError && !transcript.sentences.length) return '字幕生成失败'
+  if (player.isPlaying) return '播放中'
+  if (player.positionMs > 0) return '已暂停'
+  return '就绪'
+})
+const statusClass = computed(() => {
+  if (transcript.isTranscribing) return 'warn'
+  if (transcript.transcribeError && !transcript.sentences.length) return 'err'
+  if (player.isPlaying) return 'playing'
+  return ''
+})
+
+const currentSentence = computed(() => transcript.sentences[player.currentIndex])
+
+/* 当前句波形切片（从整段音频波形采样中截取） */
+const sentenceSamples = computed(() => {
+  const sentence = currentSentence.value
+  const samples = player.waveformSamples
+  if (
+    samples.length === 0
+    || player.durationMs <= 0
+    || !Number.isFinite(sentence?.start_ms)
+    || !Number.isFinite(sentence?.end_ms)
+    || (sentence?.end_ms ?? 0) <= (sentence?.start_ms ?? 0)
+  ) {
+    return []
+  }
+
+  const startRatio = Math.max(0, Math.min(1, (sentence!.start_ms as number) / player.durationMs))
+  const endRatio = Math.max(startRatio, Math.min(1, (sentence!.end_ms as number) / player.durationMs))
+  const startIndex = Math.floor(startRatio * samples.length)
+  const endIndex = Math.max(startIndex + 1, Math.ceil(endRatio * samples.length))
+
+  return samples.slice(startIndex, endIndex)
+})
+
+const sentenceDurationMs = computed(() => {
+  const sentence = currentSentence.value
+  if (
+    !Number.isFinite(sentence?.start_ms)
+    || !Number.isFinite(sentence?.end_ms)
+    || (sentence?.end_ms ?? 0) <= (sentence?.start_ms ?? 0)
+  ) {
+    return 0
+  }
+  return (sentence!.end_ms as number) - (sentence!.start_ms as number)
+})
+
+const sentenceProgress = computed(() => {
+  if (sentenceDurationMs.value <= 0) return 0
+  const startMs = currentSentence.value!.start_ms as number
+  return Math.max(0, Math.min(1, (player.positionMs - startMs) / sentenceDurationMs.value))
+})
+
+const totalProgress = computed(() => (
+  player.durationMs > 0 ? Math.max(0, Math.min(1, player.positionMs / player.durationMs)) : 0
+))
+
+function formatTime(ms: number): string {
+  if (!ms || ms < 0) return '00:00'
+  const totalSecs = Math.floor(ms / 1000)
+  const m = Math.floor(totalSecs / 60)
+  const s = totalSecs % 60
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+}
+
+function gotoSentence(index: number) {
+  const clamped = Math.max(0, Math.min(index, transcript.sentences.length - 1))
+  player.setCurrentIndex(clamped)
+  const sentence = transcript.sentences[clamped]
+  if (Number.isFinite(sentence?.start_ms)) {
+    void player.seekTo(sentence!.start_ms as number)
+  }
+}
+
+function onProgressClick(event: MouseEvent) {
+  if (player.durationMs <= 0) return
+  const track = (event.currentTarget as HTMLElement).getBoundingClientRect()
+  const ratio = Math.max(0, Math.min(1, (event.clientX - track.left) / track.width))
+  void player.seekTo(ratio * player.durationMs)
+}
+
+function onVolumeInput(event: Event) {
+  const parsed = Number.parseInt((event.target as HTMLInputElement).value, 10)
+  if (!Number.isFinite(parsed)) return
+  void player.setVolume(Math.max(0, Math.min(parsed, 100)))
+}
+
+function onToggleMask() {
+  toggleMask()
+  app.showSubtitleToast(maskText.value ? '已遮蔽文本 · 点击大句可临时显示' : '已显示文本')
+}
 
 function onKeydown(e: KeyboardEvent) {
-  if (app.isSettingsOpen) return
-  if (e.code !== 'Space') return
+  if (app.isSettingsOpen || confirmDialog.state.visible) return
   const tag = (e.target as HTMLElement).tagName
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
-  e.preventDefault()
-  player.togglePlay()
+
+  if (e.code === 'Space') {
+    e.preventDefault()
+    player.togglePlay()
+  } else if (e.code === 'KeyH') {
+    e.preventDefault()
+    onToggleMask()
+  }
 }
 
 onMounted(() => window.addEventListener('keydown', onKeydown))
@@ -23,23 +138,95 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 </script>
 
 <template>
-  <div class="flex-1 flex flex-col lg:flex-row h-full w-full relative overflow-hidden transition-colors duration-500"
-       :class="app.theme === 'dark' ? 'bg-dark-bg text-dark-text' : 'bg-light-bg text-light-text'">
-    <!-- Listening Mode Content -->
-    <div class="flex-1 min-w-0 flex flex-col items-center overflow-y-auto animate-fade-in pt-4 pb-6 px-4 sm:px-8 lg:pb-10">
-      <PlayerCard />
+  <div class="view animate-fade-in">
+    <div class="ls-head">
+      <span class="ls-filename">{{ trackName }}</span>
+      <span class="status-badge" :class="statusClass">{{ statusLabel }}</span>
+      <button
+        class="btn"
+        style="margin-left: auto"
+        data-tip="遮蔽 / 显示文本（H）"
+        :disabled="!transcript.sentences.length"
+        @click="onToggleMask"
+      >
+        <Icon :name="maskText ? 'eye' : 'eye-off'" :size="15" :stroke-width="1.8" />
+        {{ maskText ? '显示文本' : '遮蔽文本' }}
+      </button>
+    </div>
 
-      <!-- Bottom CTA -->
-      <div class="w-full max-w-3xl mt-4 flex-shrink-0 z-20">
-        <button @click="app.switchMode('shadowing')"
-                class="w-full font-medium py-2.5 rounded border border-transparent transition-all hover:translate-y-[-1px] flex items-center justify-center gap-2 group tracking-wide"
-                :class="app.theme === 'dark' ? 'bg-zinc-100 hover:bg-white text-black' : 'bg-black hover:bg-gray-800 text-white'">
-          Start Speaking Practice
-          <Icon name="microphone" class="transition-colors" :class="app.theme === 'dark' ? 'group-hover:text-red-500' : 'group-hover:text-red-400'" />
-        </button>
+    <div class="ls-center">
+      <div class="wave-wrap">
+        <div class="wave-label">
+          <span class="chip" style="background: var(--accent)"></span>当前句波形
+        </div>
+        <BarWave
+          v-if="sentenceSamples.length"
+          :samples="sentenceSamples"
+          :progress="sentenceProgress"
+          :duration-ms="sentenceDurationMs"
+          :text="currentSentence?.en ?? ''"
+        />
+        <div v-else class="wave-empty">
+          {{ transcript.isTranscribing ? '正在生成字幕，完成后显示当前句波形' : '暂无波形' }}
+        </div>
+      </div>
+
+      <div class="sentence-big">
+        <template v-if="currentSentence?.en">“<MaskableText :text="currentSentence.en" :masked="maskText" />”</template>
+        <template v-else-if="transcript.isTranscribing">正在生成字幕…</template>
+        <template v-else>暂无字幕</template>
+      </div>
+      <div class="sentence-idx">
+        <template v-if="transcript.sentences.length">第 {{ player.currentIndex + 1 }} 句 / 共 {{ transcript.sentences.length }} 句</template>
       </div>
     </div>
 
-    <ShadowingScriptFlow />
+    <div class="transport">
+      <button
+        class="t-btn"
+        data-tip="上一句"
+        :disabled="player.currentIndex === 0"
+        @click="gotoSentence(player.currentIndex - 1)"
+      >
+        <Icon name="backward-step" :size="16" :stroke-width="1.8" />
+      </button>
+      <button class="t-btn play" data-tip="播放 / 暂停（Space）" @click="player.togglePlay()">
+        <Icon :name="player.isPlaying ? 'pause' : 'play'" :size="20" :stroke-width="1.8" />
+      </button>
+      <button
+        class="t-btn"
+        data-tip="下一句"
+        :disabled="player.currentIndex >= transcript.sentences.length - 1"
+        @click="gotoSentence(player.currentIndex + 1)"
+      >
+        <Icon name="forward-step" :size="16" :stroke-width="1.8" />
+      </button>
+      <div class="progress" @click="onProgressClick">
+        <div class="track">
+          <div class="fill" :style="{ width: `${totalProgress * 100}%` }"></div>
+        </div>
+      </div>
+      <span class="time-label">{{ formatTime(player.positionMs) }} / {{ formatTime(player.durationMs) }}</span>
+    </div>
+
+    <div class="ls-bottom">
+      <div class="vol">
+        <button class="icon-btn" data-tip="静音（记住静音前音量）" @click="player.toggleMute()">
+          <Icon :name="player.volume === 0 ? 'volume-xmark' : 'volume-high'" :size="16" :stroke-width="1.8" />
+        </button>
+        <input
+          type="range"
+          min="0"
+          max="100"
+          :value="player.volume"
+          :disabled="player.volume === 0"
+          @input="onVolumeInput"
+        >
+      </div>
+      <div class="spacer"></div>
+      <button class="btn btn-primary" @click="app.switchMode('shadowing')">
+        进入跟读 <Icon name="arrow-right" :size="15" :stroke-width="1.8" />
+      </button>
+    </div>
   </div>
 </template>

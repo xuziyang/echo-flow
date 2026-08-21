@@ -42,6 +42,7 @@ export const useRecordingStore = defineStore('recording', () => {
   const recordingSamples = ref<number[]>([])
   const recordingsBySentence = ref<Record<string, StoredRecording>>({})
   const activePlaybackMode = ref<UserPlaybackMode | null>(null)
+  const comparisonActive = ref(false)
   const loopEnabled = ref(false)
   const autoRecordEnabled = ref(false)
   const activeLoopMode = ref<LoopPlaybackMode | null>(null)
@@ -88,6 +89,7 @@ export const useRecordingStore = defineStore('recording', () => {
     clearActiveAudio()
     activePlaybackMode.value = null
     activeLoopMode.value = null
+    comparisonActive.value = false
     await player.clearSentenceSegment({ pausePlayback: true })
   }
 
@@ -273,6 +275,13 @@ export const useRecordingStore = defineStore('recording', () => {
       ?? null
   }
 
+  function hasRecordingForSentence(sentenceIndex: number) {
+    return Boolean(
+      recordingsBySentence.value[getSentenceRecordingKey(sentenceIndex)]
+      ?? recordingsBySentence.value[getLegacySentenceRecordingKey(sentenceIndex)],
+    )
+  }
+
   function applyStoredRecording(recording: StoredRecording | null) {
     if (!recording) {
       userAudioUrl.value = null
@@ -442,6 +451,7 @@ export const useRecordingStore = defineStore('recording', () => {
       if (currentToken !== playbackToken) return
       clearActiveAudio()
       activePlaybackMode.value = null
+      comparisonActive.value = false
       onEnd?.(true)
     }
   }
@@ -579,18 +589,22 @@ export const useRecordingStore = defineStore('recording', () => {
       return false
     }
 
+    comparisonActive.value = true
     const { startMs, endMs } = getCurrentSentenceTiming()
     const startedOriginal = await player.playSentenceSegment(startMs, endMs)
     if (!startedOriginal) {
+      comparisonActive.value = false
       app.showSubtitleToast('当前句缺少时间戳，无法播放原音对比', 'error')
       return false
     }
 
-    return await startUserRecordingPlayback('comparison', {
+    const completed = await startUserRecordingPlayback('comparison', {
       waitForEnd: options?.waitForRecordingEnd,
       stopBeforeStart: false,
       allowDuringLoop: options?.allowDuringLoop,
     })
+    if (!completed) comparisonActive.value = false
+    return completed
   }
 
   async function playOriginal() {
@@ -727,6 +741,7 @@ export const useRecordingStore = defineStore('recording', () => {
     recordingDurationMs,
     hasRecording,
     activePlaybackMode,
+    comparisonActive,
     loopEnabled,
     autoRecordEnabled,
     activeLoopMode,
@@ -743,6 +758,7 @@ export const useRecordingStore = defineStore('recording', () => {
     toggleComparisonLoop,
     saveRecording,
     stopPlayback,
+    hasRecordingForSentence,
     clearRecordingsForAudio,
     clearCurrentAudioRecordings,
   }

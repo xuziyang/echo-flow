@@ -37,6 +37,11 @@ import {
   Outdent,
   Box,
   Sparkles,
+  Music,
+  Eye,
+  EyeOff,
+  TriangleAlert,
+  ArrowRight,
   type LucideProps,
 } from 'lucide-vue-next'
 import { computed } from 'vue'
@@ -86,6 +91,11 @@ const icons: Record<string, unknown> = {
   'code-compare': GitCompare,
   box: Box,
   sparkles: Sparkles,
+  music: Music,
+  eye: Eye,
+  'eye-off': EyeOff,
+  alert: TriangleAlert,
+  'arrow-right': ArrowRight,
 }
 
 const iconComponent = computed(() => icons[props.name])

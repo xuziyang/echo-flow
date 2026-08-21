@@ -5,17 +5,23 @@ const app = useAppStore()
 </script>
 
 <template>
-  <Transition>
-    <div v-if="app.toast"
-         class="absolute bottom-6 right-6 px-4 py-3 rounded-2xl border shadow-xl text-sm z-40"
-         :class="app.toastType === 'error'
-           ? (app.theme === 'dark' ? 'bg-red-950/95 border-red-900 text-red-50' : 'bg-red-50 border-red-200 text-red-800')
-           : (app.theme === 'dark' ? 'bg-zinc-900 border-zinc-700 text-zinc-100' : 'bg-white border-gray-200 text-slate-700')">
-      <div class="flex items-center gap-3">
-        <Icon :name="app.toastType === 'error' ? 'triangle-exclamation' : 'check'"
-              :class="app.toastType === 'error' ? 'text-red-400' : 'text-emerald-500'" />
+  <div id="toasts">
+    <Transition name="toast">
+      <div v-if="app.toast" class="toast" :class="{ err: app.toastType === 'error' }">
+        <Icon
+          :name="app.toastType === 'error' ? 'alert' : 'check'"
+          :size="14"
+          :stroke-width="1.8"
+          :style="{ color: app.toastType === 'error' ? 'var(--red)' : 'var(--accent)', flex: 'none' }"
+        />
         <span>{{ app.toast }}</span>
       </div>
-    </div>
-  </Transition>
+    </Transition>
+  </div>
 </template>
+
+<style scoped>
+.toast-enter-active { transition: opacity .25s, transform .25s; }
+.toast-leave-active { transition: opacity .3s, transform .3s; }
+.toast-enter-from, .toast-leave-to { opacity: 0; transform: translateX(14px); }
+</style>

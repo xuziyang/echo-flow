@@ -4,13 +4,14 @@ import { useAppStore } from '../../stores/useAppStore'
 import { usePlayerStore } from '../../stores/usePlayerStore'
 import { useRecordingStore } from '../../stores/useRecordingStore'
 import { useTranscriptStore } from '../../stores/useTranscriptStore'
+import { useConfirmDialog } from '../../composables/useConfirmDialog'
 import ShadowingWorkArea from './ShadowingWorkArea.vue'
-import ShadowingScriptFlow from './ShadowingScriptFlow.vue'
 
 const app = useAppStore()
 const player = usePlayerStore()
 const recording = useRecordingStore()
 const transcript = useTranscriptStore()
+const confirmDialog = useConfirmDialog()
 let sentenceSwitchToken = 0
 
 const isBusy = computed(() => (
@@ -28,7 +29,7 @@ function playSentenceAtIndex(index: number) {
 }
 
 function onKeydown(e: KeyboardEvent) {
-  if (app.isSettingsOpen) return
+  if (app.isSettingsOpen || confirmDialog.state.visible) return
   const tag = (e.target as HTMLElement).tagName
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
 
@@ -45,8 +46,8 @@ function onKeydown(e: KeyboardEvent) {
       break
     case 'Space':
       e.preventDefault()
-      if (recording.activeLoopMode === 'original') {
-        void recording.playOriginal()
+      if (recording.activeLoopMode || recording.comparisonActive) {
+        void recording.stopPlayback()
         return
       }
       if (isBusy.value) return
@@ -58,15 +59,16 @@ function onKeydown(e: KeyboardEvent) {
       void recording.toggleRecording()
       break
     case 'KeyC':
-      if (recording.activeLoopMode === 'comparison') {
-        void recording.playComparison()
+      e.preventDefault()
+      if (recording.comparisonActive || recording.activeLoopMode === 'comparison') {
+        void recording.stopPlayback()
         return
       }
       if (isBusy.value) return
       void recording.playComparison()
       break
     case 'Escape':
-      if (recording.activeLoopMode) {
+      if (recording.activeLoopMode || recording.comparisonActive) {
         void recording.stopPlayback()
         return
       }
@@ -78,6 +80,8 @@ function onKeydown(e: KeyboardEvent) {
 onMounted(() => {
   void player.clearSentenceSegment({ pausePlayback: true })
   window.addEventListener('keydown', onKeydown)
+  // 进入跟读即播一次当前句原音
+  playSentenceAtIndex(player.currentIndex)
 })
 
 watch(() => player.currentIndex, async (index) => {
@@ -97,9 +101,5 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="flex-1 flex flex-col lg:flex-row overflow-hidden"
-       :class="app.theme === 'dark' ? 'bg-dark-bg' : 'bg-light-bg'">
-    <ShadowingWorkArea />
-    <ShadowingScriptFlow />
-  </div>
+  <ShadowingWorkArea />
 </template>

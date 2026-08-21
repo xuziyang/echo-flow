@@ -44,10 +44,7 @@ export function useDownloadEvents() {
     const unlistenComplete = await listen<DownloadCompleteEvent>(
       'download-complete',
       async () => {
-        modelStore.downloadingType = null
-        modelStore.currentDownloadId = null
-        modelStore.downloadProgress = null
-        modelStore.downloadProgressPercent = 0
+        modelStore.resetDownloadState()
         await modelStore.checkModels()
       },
     )
@@ -55,20 +52,14 @@ export function useDownloadEvents() {
     const unlistenError = await listen<DownloadErrorEvent>(
       'download-error',
       () => {
-        modelStore.downloadingType = null
-        modelStore.currentDownloadId = null
-        modelStore.downloadProgress = null
-        modelStore.downloadProgressPercent = 0
+        modelStore.resetDownloadState()
       },
     )
 
     const unlistenCanceled = await listen<DownloadCanceledEvent>(
       'download-canceled',
       () => {
-        modelStore.downloadingType = null
-        modelStore.currentDownloadId = null
-        modelStore.downloadProgress = null
-        modelStore.downloadProgressPercent = 0
+        modelStore.resetDownloadState()
       },
     )
 

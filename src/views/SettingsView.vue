@@ -7,6 +7,7 @@ import { openPath } from '@tauri-apps/plugin-opener'
 import { useAppStore } from '../stores/useAppStore'
 import { useSettingsStore, type WhisperModelType } from '../stores/useSettingsStore'
 import { useModelDownloadStore, type ModelType } from '../stores/useModelDownloadStore'
+import { toErrorMessage } from '../utils/errors'
 import Icon from '../components/Icon.vue'
 
 type SettingsSection = 'general' | 'audio' | 'models' | 'appearance'
@@ -59,10 +60,12 @@ function onKeydown(e: KeyboardEvent) {
   app.closeSettings()
 }
 
+function showError(error: unknown) {
+  app.showSubtitleToast(toErrorMessage(error), 'error')
+}
+
 function requestDownload(type: ModelType) {
-  void modelDownload.downloadModel(type).catch((error) => {
-    app.showSubtitleToast(typeof error === 'string' ? error : String(error), 'error')
-  })
+  void modelDownload.downloadModel(type).catch(showError)
 }
 
 function requestDelete(type: ModelType) {
@@ -120,7 +123,7 @@ async function openModelFolder() {
     })
     await openPath(modelFolder)
   } catch (error) {
-    app.showSubtitleToast(typeof error === 'string' ? error : String(error), 'error')
+    showError(error)
   }
 }
 
@@ -128,7 +131,7 @@ async function loadCacheDirectories() {
   try {
     appCacheDirectory.value = await invoke<string>('get_app_cache_dir')
   } catch (error) {
-    app.showSubtitleToast(typeof error === 'string' ? error : String(error), 'error')
+    showError(error)
   }
 }
 
@@ -138,7 +141,7 @@ async function refreshResolvedModelDirectory() {
       modelDir: settings.modelDirectory || null,
     })
   } catch (error) {
-    app.showSubtitleToast(typeof error === 'string' ? error : String(error), 'error')
+    showError(error)
   }
 }
 
@@ -148,7 +151,7 @@ async function openAppCacheFolder() {
     appCacheDirectory.value = folder
     await openPath(folder)
   } catch (error) {
-    app.showSubtitleToast(typeof error === 'string' ? error : String(error), 'error')
+    showError(error)
   }
 }
 

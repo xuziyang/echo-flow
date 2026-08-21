@@ -6,6 +6,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { useTranscriptStore } from './useTranscriptStore'
 import { usePlayerStore } from './usePlayerStore'
 import { useAppStore } from './useAppStore'
+import { toErrorMessage } from '../utils/errors'
 
 const RECENT_FILES_STORAGE_KEY = 'echo-flow:recent-files'
 const MAX_RECENT_FILES = 20
@@ -149,13 +150,13 @@ export const useFilesStore = defineStore('files', () => {
 
       // 波形预览改为后台加载，完成后通过事件补齐。
       void invoke('load_waveform_preview', { path: result.path }).catch((error) => {
-        app.showSubtitleToast(typeof error === 'string' ? error : String(error), 'error')
+        app.showSubtitleToast(toErrorMessage(error), 'error')
       })
     } catch (error) {
       if (options?.removeOnFailure) {
         removeRecentFile(path)
       }
-      app.showSubtitleToast(typeof error === 'string' ? error : String(error), 'error')
+      app.showSubtitleToast(toErrorMessage(error), 'error')
     }
   }
 

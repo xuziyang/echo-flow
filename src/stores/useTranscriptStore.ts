@@ -5,6 +5,8 @@ import { invoke } from '@tauri-apps/api/core'
 import { useAppStore } from './useAppStore'
 import { usePlayerStore } from './usePlayerStore'
 import { useSettingsStore, type WhisperModelType } from './useSettingsStore'
+import { toErrorMessage } from '../utils/errors'
+import { isWordChar } from '../utils/text'
 
 export interface Sentence {
   id: number
@@ -168,7 +170,7 @@ export const useTranscriptStore = defineStore('transcript', () => {
       return true
     } catch (error) {
       app.showSubtitleToast(
-        `Failed to update cached subtitles: ${typeof error === 'string' ? error : String(error)}`,
+        `Failed to update cached subtitles: ${toErrorMessage(error)}`,
         'error',
       )
       return false
@@ -214,10 +216,6 @@ export const useTranscriptStore = defineStore('transcript', () => {
       && Number.isFinite(sentence.end_ms)
       && (sentence.start_ms as number) >= 0
       && (sentence.end_ms as number) > (sentence.start_ms as number)
-  }
-
-  function isWordChar(char: string | undefined): boolean {
-    return Boolean(char && /[A-Za-z0-9']/.test(char))
   }
 
   function isInsideWord(source: string, cursorPosition: number): boolean {
@@ -438,7 +436,7 @@ export const useTranscriptStore = defineStore('transcript', () => {
         || pendingSplitAlignments.value.get(options.rightId) === requestId
       ) {
         app.showSubtitleToast(
-          `Split alignment failed; kept estimated timing: ${typeof error === 'string' ? error : String(error)}`,
+          `Split alignment failed; kept estimated timing: ${toErrorMessage(error)}`,
           'error',
         )
       }
@@ -449,40 +447,33 @@ export const useTranscriptStore = defineStore('transcript', () => {
     }
   }
 
-  function mergeWithPrev(index: number): boolean {
-    if (!isEditing.value || index <= 0) return false
-
-    const prev = draftSentences.value[index - 1]
-    const current = draftSentences.value[index]
-    if (!prev || !current) return false
+  /** 合并两句：source 并入 target，删除 source 并修正索引 */
+  function mergeSentences(targetIndex: number, sourceIndex: number): boolean {
+    const target = draftSentences.value[targetIndex]
+    const source = draftSentences.value[sourceIndex]
+    if (!target || !source) return false
 
     invalidateAllSplitAlignments()
-    prev.en = `${prev.en.trim()} ${current.en.trim()}`.trim()
-    prev.start_ms = mergedStartMs(prev, current)
-    prev.end_ms = mergedEndMs(prev, current)
-    markSentenceDirty(prev)
-    draftSentences.value.splice(index, 1)
-    reconcileIndicesAfterRemoval(index)
-    startEditing(index - 1)
+    target.en = `${target.en.trim()} ${source.en.trim()}`.trim()
+    target.start_ms = mergedStartMs(target, source)
+    target.end_ms = mergedEndMs(target, source)
+    markSentenceDirty(target)
+    draftSentences.value.splice(sourceIndex, 1)
+    reconcileIndicesAfterRemoval(sourceIndex)
+    startEditing(targetIndex)
+    return true
+  }
+
+  function mergeWithPrev(index: number): boolean {
+    if (!isEditing.value || index <= 0) return false
+    if (!mergeSentences(index - 1, index)) return false
     app.showSubtitleToast('Merged with previous sentence')
     return true
   }
 
   function mergeWithNext(index: number): boolean {
     if (!isEditing.value || index >= draftSentences.value.length - 1) return false
-
-    const current = draftSentences.value[index]
-    const next = draftSentences.value[index + 1]
-    if (!current || !next) return false
-
-    invalidateAllSplitAlignments()
-    current.en = `${current.en.trim()} ${next.en.trim()}`.trim()
-    current.start_ms = mergedStartMs(current, next)
-    current.end_ms = mergedEndMs(current, next)
-    markSentenceDirty(current)
-    draftSentences.value.splice(index + 1, 1)
-    reconcileIndicesAfterRemoval(index + 1)
-    startEditing(index)
+    if (!mergeSentences(index, index + 1)) return false
     app.showSubtitleToast('Merged with next sentence')
     return true
   }
@@ -512,9 +503,34 @@ export const useTranscriptStore = defineStore('transcript', () => {
       }))
       await invoke('save_subtitle_file', { path, entries })
     } catch (error) {
-      app.showSubtitleToast(typeof error === 'string' ? error : String(error), 'error')
+      app.showSubtitleToast(toErrorMessage(error), 'error')
       throw error
     }
+  }
+
+  /** 转写任务通用初始化：分配 jobId 并置位进度状态 */
+  function beginTranscribeJob(status: string, whisperModel: WhisperModelType): number {
+    const settings = useSettingsStore()
+    const jobId = nextTranscribeJobId++
+    currentWhisperModel.value = whisperModel
+    currentModelDir.value = settings.modelDirectory || null
+    activeTranscribeJobId.value = jobId
+    isTranscribing.value = true
+    transcribeProgress.value = 0
+    transcribeStatus.value = status
+    transcribeError.value = null
+    return jobId
+  }
+
+  /** 转写启动失败：仅当任务仍是当前任务时更新状态并提示 */
+  function failTranscribeStart(jobId: number, audioPath: string, error: unknown) {
+    if (!isCurrentTranscribeTarget(jobId, audioPath)) return
+    const message = String(error)
+    transcribeError.value = message
+    transcribeStatus.value = 'Transcription failed'
+    isTranscribing.value = false
+    activeTranscribeJobId.value = null
+    app.showSubtitleToast(message, 'error')
   }
 
   /** 开始转写音频文件（自动调用） */
@@ -525,17 +541,10 @@ export const useTranscriptStore = defineStore('transcript', () => {
   ): Promise<void> {
     const settings = useSettingsStore()
     const whisperModel = options.whisperModel ?? settings.selectedWhisperModel
-    const jobId = nextTranscribeJobId++
+    const jobId = beginTranscribeJob('Preparing transcription', whisperModel)
     console.info('[transcribe] start', { jobId, audioPath })
     currentAudioPath.value = audioPath
     currentModelPath.value = modelPath ?? null
-    currentWhisperModel.value = whisperModel
-    currentModelDir.value = settings.modelDirectory || null
-    activeTranscribeJobId.value = jobId
-    isTranscribing.value = true
-    transcribeProgress.value = 0
-    transcribeStatus.value = 'Preparing transcription'
-    transcribeError.value = null
     if (!options.preserveExisting) {
       sentences.value = []
     }
@@ -551,14 +560,7 @@ export const useTranscriptStore = defineStore('transcript', () => {
         forceRegenerate: options.forceRegenerate ?? false,
       })
     } catch (err) {
-      if (activeTranscribeJobId.value === jobId && currentAudioPath.value === audioPath) {
-        const message = String(err)
-        transcribeError.value = message
-        transcribeStatus.value = 'Transcription failed'
-        isTranscribing.value = false
-        activeTranscribeJobId.value = null
-        app.showSubtitleToast(message, 'error')
-      }
+      failTranscribeStart(jobId, audioPath, err)
     }
   }
 
@@ -616,15 +618,8 @@ export const useTranscriptStore = defineStore('transcript', () => {
 
     const settings = useSettingsStore()
     const selectedWhisperModel = whisperModel ?? settings.selectedWhisperModel
-    const jobId = nextTranscribeJobId++
+    const jobId = beginTranscribeJob('Regenerating subtitle texts', selectedWhisperModel)
     console.info('[transcribe] regenerate texts', { jobId, audioPath, bounds: bounds.length })
-    currentWhisperModel.value = selectedWhisperModel
-    currentModelDir.value = settings.modelDirectory || null
-    activeTranscribeJobId.value = jobId
-    isTranscribing.value = true
-    transcribeProgress.value = 0
-    transcribeStatus.value = 'Regenerating subtitle texts'
-    transcribeError.value = null
 
     try {
       await invoke<number>('regenerate_subtitle_texts', {
@@ -636,14 +631,7 @@ export const useTranscriptStore = defineStore('transcript', () => {
         jobId,
       })
     } catch (err) {
-      if (activeTranscribeJobId.value === jobId && currentAudioPath.value === audioPath) {
-        const message = String(err)
-        transcribeError.value = message
-        transcribeStatus.value = 'Transcription failed'
-        isTranscribing.value = false
-        activeTranscribeJobId.value = null
-        app.showSubtitleToast(message, 'error')
-      }
+      failTranscribeStart(jobId, audioPath, err)
     }
   }
 

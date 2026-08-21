@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { useAppStore } from './useAppStore'
 import { useSettingsStore } from './useSettingsStore'
+import { toErrorMessage } from '../utils/errors'
 
 export interface PlaybackState {
   path: string
@@ -47,8 +48,7 @@ export const usePlayerStore = defineStore('player', () => {
   let resolveSegmentPlayback: ((completed: boolean) => void) | null = null
 
   function notifyPlaybackError(error: unknown) {
-    const message = typeof error === 'string' ? error : String(error)
-    app.showSubtitleToast(message, 'error')
+    app.showSubtitleToast(toErrorMessage(error), 'error')
   }
 
   function finishSegmentPlayback(completed: boolean) {

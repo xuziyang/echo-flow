@@ -71,20 +71,21 @@ function gotoSentence(delta: number) {
   player.setCurrentIndex(next)
 }
 
-function onPlayOriginal() {
+/* 对照播放中再次点击 = 停止；否则开始播放 */
+function stopComparisonOr(play: () => Promise<void>) {
   if (recording.comparisonActive) {
     void recording.stopPlayback()
     return
   }
-  void recording.playOriginal()
+  void play()
+}
+
+function onPlayOriginal() {
+  stopComparisonOr(() => recording.playOriginal())
 }
 
 function onCompare() {
-  if (recording.comparisonActive) {
-    void recording.stopPlayback()
-    return
-  }
-  void recording.playComparison()
+  stopComparisonOr(() => recording.playComparison())
 }
 
 onUnmounted(() => {

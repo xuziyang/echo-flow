@@ -5,6 +5,7 @@ import { usePlayerStore } from '../../stores/usePlayerStore'
 import { useRecordingStore } from '../../stores/useRecordingStore'
 import { useTranscriptStore, type Sentence } from '../../stores/useTranscriptStore'
 import { useTextMask } from '../../composables/useTextMask'
+import { isWordChar } from '../../utils/text'
 import MaskableText from '../common/MaskableText.vue'
 import Icon from '../Icon.vue'
 
@@ -39,10 +40,6 @@ const hasTiming = computed(() => (
 ))
 const hasRecording = computed(() => recording.hasRecordingForSentence(props.index))
 const masked = computed(() => maskText.value && app.mode === 'listening' && !transcript.isEditing)
-
-function isWordChar(char: string | undefined): boolean {
-  return Boolean(char && /[A-Za-z0-9']/.test(char))
-}
 
 /** 拆句光标校验：不能在词中间或首尾 */
 const splitCursorInvalid = computed(() => {

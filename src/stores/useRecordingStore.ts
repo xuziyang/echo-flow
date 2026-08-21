@@ -6,6 +6,7 @@ import { useAppStore } from './useAppStore'
 import { usePlayerStore } from './usePlayerStore'
 import { useSettingsStore } from './useSettingsStore'
 import { useTranscriptStore } from './useTranscriptStore'
+import { toErrorMessage } from '../utils/errors'
 
 interface RecordingResult {
   samples: number[]
@@ -60,6 +61,21 @@ export const useRecordingStore = defineStore('recording', () => {
   let audioBufferSource: AudioBufferSourceNode | null = null
   let recordingSentenceIndex = 0
   let recordingCacheDirectory: string | null = null
+
+  function showErrorToast(error: unknown) {
+    app.showSubtitleToast(toErrorMessage(error), 'error')
+  }
+
+  /* 是否有进行中的录音 / 播放（循环可通过 allowDuringLoop 豁免） */
+  function isPlaybackBusy(options?: { allowDuringLoop?: boolean }): boolean {
+    return Boolean(
+      isRecording.value
+      || activePlaybackMode.value
+      || (!options?.allowDuringLoop && activeLoopMode.value)
+      || player.isPlaying
+      || player.seeking,
+    )
+  }
 
   function clearActiveAudio() {
     if (audioBufferSource) {
@@ -119,7 +135,7 @@ export const useRecordingStore = defineStore('recording', () => {
       isRecording.value = true
     } catch (err) {
       stopWaveformPolling()
-      app.showSubtitleToast(typeof err === 'string' ? err : String(err), 'error')
+      showErrorToast(err)
     }
   }
 
@@ -127,7 +143,6 @@ export const useRecordingStore = defineStore('recording', () => {
     if (!isRecording.value) return
 
     try {
-      stopWaveformPolling()
       const result = (await invoke('stop_recording')) as RecordingResult
       recordingSamples.value = result.samples
       recordingSampleRate.value = result.sample_rate
@@ -142,7 +157,7 @@ export const useRecordingStore = defineStore('recording', () => {
         await saveCurrentSentenceRecording(recordingSentenceIndex, { silentSuccess: options?.silent })
       }
     } catch (err) {
-      app.showSubtitleToast(typeof err === 'string' ? err : String(err), 'error')
+      showErrorToast(err)
     } finally {
       stopWaveformPolling()
       isRecording.value = false
@@ -356,7 +371,7 @@ export const useRecordingStore = defineStore('recording', () => {
     try {
       await invoke('delete_recordings_for_audio', { audioPath })
     } catch (error) {
-      app.showSubtitleToast(typeof error === 'string' ? error : String(error), 'error')
+      showErrorToast(error)
       return false
     }
 
@@ -442,7 +457,7 @@ export const useRecordingStore = defineStore('recording', () => {
         app.showSubtitleToast(`录音已保存：${fileName}`)
       }
     } catch (error) {
-      app.showSubtitleToast(typeof error === 'string' ? error : String(error), 'error')
+      showErrorToast(error)
     }
   }
 
@@ -470,6 +485,7 @@ export const useRecordingStore = defineStore('recording', () => {
     const audioUrl = sentenceRecording?.audioUrl ?? userAudioUrl.value
 
     if (!sentenceRecording && !audioUrl && samples.length === 0) return false
+    // 注意：不检查 activePlaybackMode —— 旧录音由下方 stopPlayback / clearActiveAudio 停掉
     if (
       isRecording.value
       || player.isPlaying
@@ -533,7 +549,7 @@ export const useRecordingStore = defineStore('recording', () => {
           }).catch((error) => {
             clearActiveAudio()
             activePlaybackMode.value = null
-            app.showSubtitleToast(typeof error === 'string' ? error : String(error), 'error')
+            showErrorToast(error)
             finish(false)
           })
         }
@@ -541,7 +557,7 @@ export const useRecordingStore = defineStore('recording', () => {
       } catch (error) {
         clearActiveAudio()
         activePlaybackMode.value = null
-        app.showSubtitleToast(typeof error === 'string' ? error : String(error), 'error')
+        showErrorToast(error)
         finish(false)
       }
     })
@@ -560,9 +576,7 @@ export const useRecordingStore = defineStore('recording', () => {
   }
 
   async function playOriginalOnce(showMissingTimestampToast = true): Promise<boolean> {
-    if (isRecording.value || activePlaybackMode.value || activeLoopMode.value || player.isPlaying || player.seeking) {
-      return false
-    }
+    if (isPlaybackBusy()) return false
 
     const { startMs, endMs } = getCurrentSentenceTiming()
     const startedOriginal = await player.playSentenceSegment(startMs, endMs)
@@ -579,15 +593,7 @@ export const useRecordingStore = defineStore('recording', () => {
       app.showSubtitleToast('请先完成录音，再播放对比', 'error')
       return false
     }
-    if (
-      isRecording.value
-      || activePlaybackMode.value
-      || (!options?.allowDuringLoop && activeLoopMode.value)
-      || player.isPlaying
-      || player.seeking
-    ) {
-      return false
-    }
+    if (isPlaybackBusy({ allowDuringLoop: options?.allowDuringLoop })) return false
 
     comparisonActive.value = true
     const { startMs, endMs } = getCurrentSentenceTiming()
@@ -656,7 +662,7 @@ export const useRecordingStore = defineStore('recording', () => {
     if (activeLoopMode.value) {
       await stopPlayback()
     }
-    if (isRecording.value || activePlaybackMode.value || player.isPlaying || player.seeking) return
+    if (isPlaybackBusy()) return
 
     const { startMs, endMs } = getCurrentSentenceTiming()
     if (!player.canPlaySentenceSegment(startMs, endMs)) {
@@ -687,7 +693,7 @@ export const useRecordingStore = defineStore('recording', () => {
     if (activeLoopMode.value) {
       await stopPlayback()
     }
-    if (isRecording.value || activePlaybackMode.value || player.isPlaying || player.seeking) return
+    if (isPlaybackBusy()) return
 
     if (!hasRecording.value) {
       app.showSubtitleToast('请先完成录音，再循环播放对比', 'error')

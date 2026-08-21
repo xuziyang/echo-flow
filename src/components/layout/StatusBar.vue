@@ -17,7 +17,8 @@ const statusLabel = computed(() => {
   if (transcript.transcribeError && !transcript.sentences.length) return '字幕生成失败'
   if (!player.currentPath) return '就绪'
   if (app.mode === 'listening') {
-    return player.isPlaying ? '播放中' : (player.positionMs > 0 ? '已暂停' : '就绪')
+    if (player.isPlaying) return '播放中'
+    return player.positionMs > 0 ? '已暂停' : '就绪'
   }
   if (recording.isRecording) return '录音中'
   if (recording.activeLoopMode) return recording.activeLoopMode === 'original' ? '原音循环中' : '对照循环中'

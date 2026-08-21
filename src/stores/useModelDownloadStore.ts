@@ -22,6 +22,15 @@ export interface DownloadProgress {
   percent: number
 }
 
+const installedKeyByType: Record<ModelType, keyof DownloadedModels> = {
+  'whisper-tiny': 'whisperTiny',
+  'whisper-base': 'whisperBase',
+  'whisper-small': 'whisperSmall',
+  'whisper-medium': 'whisperMedium',
+  vad: 'vad',
+  alignment: 'alignment',
+}
+
 export const useModelDownloadStore = defineStore('modelDownload', () => {
   const settings = useSettingsStore()
   const downloadedModels = ref<DownloadedModels>({
@@ -52,10 +61,8 @@ export const useModelDownloadStore = defineStore('modelDownload', () => {
   }
 
   async function downloadModel(type: ModelType) {
+    resetDownloadState()
     downloadingType.value = type
-    currentDownloadId.value = null
-    downloadProgress.value = null
-    downloadProgressPercent.value = 0
 
     try {
       currentDownloadId.value = await invoke<number>('download_model', {
@@ -63,10 +70,7 @@ export const useModelDownloadStore = defineStore('modelDownload', () => {
         modelDir: settings.modelDirectory || null,
       })
     } catch (error) {
-      downloadingType.value = null
-      currentDownloadId.value = null
-      downloadProgress.value = null
-      downloadProgressPercent.value = 0
+      resetDownloadState()
       console.error('Download failed:', error)
       throw error
     }
@@ -77,10 +81,7 @@ export const useModelDownloadStore = defineStore('modelDownload', () => {
 
     const downloadId = currentDownloadId.value
     await invoke('cancel_download', { downloadId })
-    downloadingType.value = null
-    currentDownloadId.value = null
-    downloadProgress.value = null
-    downloadProgressPercent.value = 0
+    resetDownloadState()
   }
 
   async function deleteModel(type: ModelType) {
@@ -105,16 +106,14 @@ export const useModelDownloadStore = defineStore('modelDownload', () => {
   }
 
   function isModelInstalled(type: ModelType): boolean {
-    const installedKeyByType: Record<ModelType, keyof DownloadedModels> = {
-      'whisper-tiny': 'whisperTiny',
-      'whisper-base': 'whisperBase',
-      'whisper-small': 'whisperSmall',
-      'whisper-medium': 'whisperMedium',
-      vad: 'vad',
-      alignment: 'alignment',
-    }
-
     return downloadedModels.value[installedKeyByType[type]]
+  }
+
+  function resetDownloadState() {
+    downloadingType.value = null
+    currentDownloadId.value = null
+    downloadProgress.value = null
+    downloadProgressPercent.value = 0
   }
 
   return {
@@ -129,5 +128,6 @@ export const useModelDownloadStore = defineStore('modelDownload', () => {
     cancelDownload,
     deleteModel,
     isModelInstalled,
+    resetDownloadState,
   }
 })

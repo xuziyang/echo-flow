@@ -6,8 +6,8 @@ import { useAppStore } from '../../stores/useAppStore'
 import Icon from '../Icon.vue'
 
 const app = useAppStore()
-const isWindows = ref(platform() === 'windows')
-const isMac = ref(platform() === 'macos')
+const isWindows = platform() === 'windows'
+const isMac = platform() === 'macos'
 const isMaximized = ref(false)
 
 const win = getCurrentWindow()

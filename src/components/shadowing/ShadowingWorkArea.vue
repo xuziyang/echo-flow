@@ -47,7 +47,7 @@ const cmpStep = computed(() => {
   return 0
 })
 
-/* 各按钮激活态：驱动高亮样式，并让激活按钮保持可点（再按即停） */
+/* 对照第一阶段也会 isPlaying，原音高亮需排除对照 */
 const originalActive = computed(() => (
   (player.isPlaying || recording.activeLoopMode === 'original') && !recording.comparisonActive
 ))
@@ -57,6 +57,9 @@ const compareActive = computed(() => (
   || recording.activePlaybackMode === 'comparison'
   || recording.activeLoopMode === 'comparison'
 ))
+const originalEnabled = computed(() => canPlayOriginal.value || originalActive.value || compareActive.value)
+const playbackEnabled = computed(() => canPlayRecording.value || playbackActive.value)
+const compareEnabled = computed(() => canCompare.value || compareActive.value)
 
 /* 录音计时 */
 const recElapsed = ref(0)
@@ -82,29 +85,24 @@ function gotoSentence(delta: number) {
   player.setCurrentIndex(next)
 }
 
-/* 播放类按钮：生效中再次点击 = 停止；否则开始播放 */
-function onPlayOriginal() {
-  if (originalActive.value || compareActive.value) {
+function stopOrStart(isActive: boolean, start: () => Promise<unknown>) {
+  if (isActive) {
     void recording.stopPlayback()
     return
   }
-  void recording.playOriginal()
+  void start()
+}
+
+function onPlayOriginal() {
+  stopOrStart(originalActive.value || compareActive.value, () => recording.playOriginal())
 }
 
 function onPlayRecording() {
-  if (playbackActive.value) {
-    void recording.stopPlayback()
-    return
-  }
-  void recording.playUserRecording()
+  stopOrStart(playbackActive.value, () => recording.playUserRecording())
 }
 
 function onCompare() {
-  if (compareActive.value) {
-    void recording.stopPlayback()
-    return
-  }
-  void recording.playComparison()
+  stopOrStart(compareActive.value, () => recording.playComparison())
 }
 
 onUnmounted(() => {
@@ -154,7 +152,7 @@ onUnmounted(() => {
       <button
         class="ctl"
         :class="{ 'loop-on': originalActive }"
-        :disabled="!canPlayOriginal && !originalActive && !compareActive"
+        :disabled="!originalEnabled"
         @click="onPlayOriginal"
       >
         <Icon name="play" :size="15" :stroke-width="1.8" />
@@ -172,7 +170,7 @@ onUnmounted(() => {
       <button
         class="ctl"
         :class="{ 'mine-on': playbackActive }"
-        :disabled="!canPlayRecording && !playbackActive"
+        :disabled="!playbackEnabled"
         @click="onPlayRecording"
       >
         <Icon name="rotate-left" :size="15" :stroke-width="1.8" /> 回放 <kbd>P</kbd>
@@ -180,7 +178,7 @@ onUnmounted(() => {
       <button
         class="ctl"
         :class="{ 'loop-on': compareActive }"
-        :disabled="!canCompare && !compareActive"
+        :disabled="!compareEnabled"
         @click="onCompare"
       >
         <Icon name="code-compare" :size="15" :stroke-width="1.8" />

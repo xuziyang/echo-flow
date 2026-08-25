@@ -287,10 +287,12 @@ input[type=range]:disabled::-webkit-slider-thumb { background: var(--text2); }
 .ctl:disabled { opacity: .42; cursor: not-allowed; }
 .ctl.rec-on { background: var(--red); color: #fff; border-color: transparent; animation: recpulse 1.6s ease-in-out infinite; }
 @keyframes recpulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(217, 106, 95, .45); } 50% { box-shadow: 0 0 0 6px rgba(217, 106, 95, 0); } }
-/* 播放激活态：原音 / 对照用主色 accent，回放用「我的录音」色 mine（与波形 chip 同色） */
-.ctl.loop-on { background: var(--accent); color: #101413; border-color: transparent; }
-.light .ctl.loop-on { color: #fff; }
-.ctl.mine-on { background: var(--mine); color: #101413; border-color: transparent; }
+/* 播放激活态：原音 / 对照用 accent，回放用 mine（与波形 chip 同色） */
+.ctl.loop-on,
+.ctl.mine-on { color: #101413; border-color: transparent; }
+.ctl.loop-on { background: var(--accent); }
+.ctl.mine-on { background: var(--mine); }
+.light .ctl.loop-on,
 .light .ctl.mine-on { color: #fff; }
 .chk { display: inline-flex; align-items: center; gap: 7px; color: var(--text2); cursor: pointer; padding: 6px 4px; }
 .chk input { accent-color: var(--accent); width: 15px; height: 15px; }

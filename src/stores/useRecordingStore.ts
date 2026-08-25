@@ -575,19 +575,19 @@ export const useRecordingStore = defineStore('recording', () => {
     }
   }
 
-  async function playOriginalOnce(showMissingTimestampToast = true): Promise<boolean> {
+  /* playSentenceSegment 在取消时也返回 false；先校验时间戳，避免把中断误报成缺时间戳 */
+  function getPlayableCurrentTiming(missingToast?: string) {
+    const timing = getCurrentSentenceTiming()
+    if (player.canPlaySentenceSegment(timing.startMs, timing.endMs)) return timing
+    if (missingToast) app.showSubtitleToast(missingToast, 'error')
+    return null
+  }
+
+  async function playOriginalOnce(): Promise<boolean> {
     if (isPlaybackBusy()) return false
-
-    const { startMs, endMs } = getCurrentSentenceTiming()
-    // 仅当真的缺少时间戳时提示；播放中被取消也返回 false，但属于正常中断，不提示
-    if (!player.canPlaySentenceSegment(startMs, endMs)) {
-      if (showMissingTimestampToast) {
-        app.showSubtitleToast('当前句缺少时间戳，无法播放原音', 'error')
-      }
-      return false
-    }
-
-    return await player.playSentenceSegment(startMs, endMs)
+    const timing = getPlayableCurrentTiming('当前句缺少时间戳，无法播放原音')
+    if (!timing) return false
+    return player.playSentenceSegment(timing.startMs, timing.endMs)
   }
 
   async function playComparisonOnce(options?: { waitForRecordingEnd?: boolean, allowDuringLoop?: boolean }) {
@@ -598,15 +598,13 @@ export const useRecordingStore = defineStore('recording', () => {
     if (isPlaybackBusy({ allowDuringLoop: options?.allowDuringLoop })) return false
 
     comparisonActive.value = true
-    const { startMs, endMs } = getCurrentSentenceTiming()
-    // 仅当真的缺少时间戳时提示；对照第一阶段被取消也返回 false，属于正常中断，不提示
-    if (!player.canPlaySentenceSegment(startMs, endMs)) {
+    const timing = getPlayableCurrentTiming('当前句缺少时间戳，无法播放原音对比')
+    if (!timing) {
       comparisonActive.value = false
-      app.showSubtitleToast('当前句缺少时间戳，无法播放原音对比', 'error')
       return false
     }
 
-    const startedOriginal = await player.playSentenceSegment(startMs, endMs)
+    const startedOriginal = await player.playSentenceSegment(timing.startMs, timing.endMs)
     if (!startedOriginal) {
       comparisonActive.value = false
       return false
@@ -671,12 +669,7 @@ export const useRecordingStore = defineStore('recording', () => {
       await stopPlayback()
     }
     if (isPlaybackBusy()) return
-
-    const { startMs, endMs } = getCurrentSentenceTiming()
-    if (!player.canPlaySentenceSegment(startMs, endMs)) {
-      app.showSubtitleToast('当前句缺少时间戳，无法循环播放原音', 'error')
-      return
-    }
+    if (!getPlayableCurrentTiming('当前句缺少时间戳，无法循环播放原音')) return
 
     activeLoopMode.value = 'original'
     const currentLoopToken = ++loopToken
@@ -707,12 +700,7 @@ export const useRecordingStore = defineStore('recording', () => {
       app.showSubtitleToast('请先完成录音，再循环播放对比', 'error')
       return
     }
-
-    const { startMs, endMs } = getCurrentSentenceTiming()
-    if (!player.canPlaySentenceSegment(startMs, endMs)) {
-      app.showSubtitleToast('当前句缺少时间戳，无法循环播放对比', 'error')
-      return
-    }
+    if (!getPlayableCurrentTiming('当前句缺少时间戳，无法循环播放对比')) return
 
     activeLoopMode.value = 'comparison'
     const currentLoopToken = ++loopToken

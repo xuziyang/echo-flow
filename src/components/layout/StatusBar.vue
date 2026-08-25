@@ -14,6 +14,7 @@ const transcript = useTranscriptStore()
 
 const statusLabel = computed(() => {
   if (transcript.isTranscribing) return `正在生成字幕 ${Math.round(transcript.transcribeProgress)}%`
+  if (transcript.needsModelSetup && !transcript.sentences.length) return '可先听 · 字幕待下载模型'
   if (transcript.transcribeError && !transcript.sentences.length) return '字幕生成失败'
   if (!player.currentPath) return '就绪'
   if (app.mode === 'listening') {

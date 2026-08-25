@@ -18,6 +18,7 @@ const lastFile = computed(() => files.files[0] ?? null)
 const whisperReady = computed(() => modelDownload.isModelInstalled(settings.selectedWhisperModel))
 const vadReady = computed(() => modelDownload.isModelInstalled('vad'))
 const alignReady = computed(() => modelDownload.isModelInstalled('alignment'))
+const modelsReady = computed(() => whisperReady.value && vadReady.value && alignReady.value)
 const micReady = computed(() => settings.audioInputDevices.length > 0)
 
 const whisperLabel = computed(() => ({
@@ -69,6 +70,8 @@ onUnmounted(() => {
         <button class="btn btn-primary" style="margin-top: 12px" @click.stop="files.openFile()">选择文件</button>
         <div style="margin-top: 12px; font-size: 12.5px">支持 mp3 / wav / flac / ogg / aac / m4a</div>
       </div>
+
+      <p v-if="!modelsReady" class="model-hint">没有模型也能先听音频；自动字幕需要先下载识别模型。</p>
 
       <div class="checklist">
         <div class="t">开始之前，需要一次性准备：</div>

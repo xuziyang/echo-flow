@@ -1,11 +1,12 @@
 // src/stores/useTranscriptStore.ts
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { useAppStore } from './useAppStore'
 import { usePlayerStore } from './usePlayerStore'
 import { useSettingsStore, type WhisperModelType } from './useSettingsStore'
-import { toErrorMessage } from '../utils/errors'
+import { useModelDownloadStore } from './useModelDownloadStore'
+import { isMissingModelError, toErrorMessage } from '../utils/errors'
 import { isWordChar } from '../utils/text'
 
 export interface Sentence {
@@ -112,6 +113,7 @@ interface StartTranscribeOptions {
 
 export const useTranscriptStore = defineStore('transcript', () => {
   const app = useAppStore()
+  const modelDownload = useModelDownloadStore()
   const sentences = ref<Sentence[]>([])
   const isEditing = ref(false)
   const editingIndex = ref<number | null>(null)
@@ -121,6 +123,7 @@ export const useTranscriptStore = defineStore('transcript', () => {
   const transcribeProgress = ref(0)
   const transcribeStatus = ref('')
   const transcribeError = ref<string | null>(null)
+  const needsModelSetup = ref(false)
   const sentenceIdCounter = ref(1)
   const currentAudioPath = ref('')
   const activeTranscribeJobId = ref<number | null>(null)
@@ -131,6 +134,7 @@ export const useTranscriptStore = defineStore('transcript', () => {
 
   let nextTranscribeJobId = 1
   let nextSplitAlignmentRequestId = 1
+  let autoStartFromSetup = false
 
   const displaySentences = computed(() => isEditing.value ? draftSentences.value : sentences.value)
 
@@ -519,13 +523,26 @@ export const useTranscriptStore = defineStore('transcript', () => {
     transcribeProgress.value = 0
     transcribeStatus.value = status
     transcribeError.value = null
+    needsModelSetup.value = false
     return jobId
+  }
+
+  function enterModelSetup() {
+    needsModelSetup.value = true
+    transcribeError.value = null
+    transcribeStatus.value = ''
+    isTranscribing.value = false
+    activeTranscribeJobId.value = null
   }
 
   /** 转写启动失败：仅当任务仍是当前任务时更新状态并提示 */
   function failTranscribeStart(jobId: number, audioPath: string, error: unknown) {
     if (!isCurrentTranscribeTarget(jobId, audioPath)) return
-    const message = String(error)
+    if (isMissingModelError(error)) {
+      enterModelSetup()
+      return
+    }
+    const message = toErrorMessage(error)
     transcribeError.value = message
     transcribeStatus.value = 'Transcription failed'
     isTranscribing.value = false
@@ -540,15 +557,28 @@ export const useTranscriptStore = defineStore('transcript', () => {
     options: StartTranscribeOptions = {},
   ): Promise<void> {
     const settings = useSettingsStore()
-    const whisperModel = options.whisperModel ?? settings.selectedWhisperModel
-    const jobId = beginTranscribeJob('Preparing transcription', whisperModel)
-    console.info('[transcribe] start', { jobId, audioPath })
     currentAudioPath.value = audioPath
     currentModelPath.value = modelPath ?? null
     if (!options.preserveExisting) {
       sentences.value = []
     }
     resetEditingState()
+
+    try {
+      await modelDownload.checkModels()
+    } catch (error) {
+      console.warn('Failed to refresh model list before transcription:', error)
+    }
+
+    if (!modelDownload.areRequiredModelsInstalled) {
+      enterModelSetup()
+      return
+    }
+
+    needsModelSetup.value = false
+    const whisperModel = options.whisperModel ?? settings.selectedWhisperModel
+    const jobId = beginTranscribeJob('Preparing transcription', whisperModel)
+    console.info('[transcribe] start', { jobId, audioPath })
 
     try {
       await invoke<number>('transcribe_audio', {
@@ -715,6 +745,10 @@ export const useTranscriptStore = defineStore('transcript', () => {
 
   function applyTranscribeError(event: TranscribeErrorEvent) {
     if (!isCurrentTranscribeTarget(event.job_id, event.audio_path)) return
+    if (isMissingModelError(event.error)) {
+      enterModelSetup()
+      return
+    }
 
     transcribeError.value = event.error
     transcribeStatus.value = 'Transcription failed'
@@ -723,9 +757,26 @@ export const useTranscriptStore = defineStore('transcript', () => {
     app.showSubtitleToast(event.error, 'error')
   }
 
+  watch(
+    () => modelDownload.areRequiredModelsInstalled,
+    (ready) => {
+      if (!ready || !needsModelSetup.value) return
+      if (sentences.value.length > 0) {
+        needsModelSetup.value = false
+        return
+      }
+      if (!currentAudioPath.value || isTranscribing.value || autoStartFromSetup) return
+      autoStartFromSetup = true
+      void startTranscribe(currentAudioPath.value, currentModelPath.value ?? undefined)
+        .finally(() => {
+          autoStartFromSetup = false
+        })
+    },
+  )
+
   return {
     sentences, isEditing, editingIndex, draftSentences, hasUnsavedChanges,
-    isTranscribing, transcribeProgress, transcribeStatus, transcribeError,
+    isTranscribing, transcribeProgress, transcribeStatus, transcribeError, needsModelSetup,
     sentenceIdCounter, currentAudioPath, activeTranscribeJobId, displaySentences,
     cloneSentence, enterEditMode, cancelEdits, saveEdits,
     startEditing, finishEditing, updateDraft, splitSentence, alignSplitSentence,

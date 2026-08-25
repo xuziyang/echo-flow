@@ -17,6 +17,42 @@ import {
 } from './useTranscriptStore'
 import { useAppStore } from './useAppStore'
 import { usePlayerStore } from './usePlayerStore'
+import { useModelDownloadStore, type DownloadedModels } from './useModelDownloadStore'
+
+const INSTALLED_MODELS: DownloadedModels = {
+  whisperTiny: false,
+  whisperBase: true,
+  whisperSmall: false,
+  whisperMedium: false,
+  vad: true,
+  alignment: true,
+}
+
+function stubInvoke(impl?: (command: string) => unknown) {
+  invokeMock.mockImplementation((command: string) => {
+    if (command === 'list_downloaded_models') {
+      return Promise.resolve({ ...INSTALLED_MODELS })
+    }
+    const result = impl?.(command)
+    return result instanceof Promise ? result : Promise.resolve(result)
+  })
+}
+
+function stubMissingModels() {
+  invokeMock.mockImplementation((command: string) => {
+    if (command === 'list_downloaded_models') {
+      return Promise.resolve({
+        whisperTiny: false,
+        whisperBase: false,
+        whisperSmall: false,
+        whisperMedium: false,
+        vad: false,
+        alignment: false,
+      })
+    }
+    return Promise.resolve(undefined)
+  })
+}
 
 function sentence(overrides: Partial<Sentence> = {}): Sentence {
   return {
@@ -39,6 +75,7 @@ describe('useTranscriptStore', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     invokeMock.mockReset()
+    stubInvoke()
   })
 
   it('does not enter edit mode when there are no sentences', () => {
@@ -289,7 +326,7 @@ describe('useTranscriptStore', () => {
 
   it('starts normal transcription without forcing regeneration and clears old subtitles', async () => {
     const transcript = useTranscriptStore()
-    invokeMock.mockResolvedValue(12)
+    stubInvoke(() => 12)
     transcript.sentences = [sentence({ id: 7, en: 'Old cached subtitle.' })]
 
     await transcript.startTranscribe('/tmp/current.mp3')
@@ -308,7 +345,7 @@ describe('useTranscriptStore', () => {
 
   it('regenerates subtitles by forcing transcription while preserving existing subtitles', async () => {
     const transcript = useTranscriptStore()
-    invokeMock.mockResolvedValue(13)
+    stubInvoke(() => 13)
     transcript.currentAudioPath = '/tmp/current.mp3'
     transcript.sentences = [sentence({ id: 7, en: 'Keep this until new subtitles arrive.' })]
 
@@ -332,7 +369,7 @@ describe('useTranscriptStore', () => {
 
   it('regenerates subtitles with the selected regeneration model', async () => {
     const transcript = useTranscriptStore()
-    invokeMock.mockResolvedValue(14)
+    stubInvoke(() => 14)
     transcript.currentAudioPath = '/tmp/current.mp3'
     transcript.sentences = [sentence({ id: 7, en: 'Keep this until new subtitles arrive.' })]
 
@@ -350,7 +387,7 @@ describe('useTranscriptStore', () => {
 
   it('keeps existing subtitles when regeneration fails to start', async () => {
     const transcript = useTranscriptStore()
-    invokeMock.mockImplementation((command: string) => {
+    stubInvoke((command: string) => {
       if (command === 'delete_recordings_for_audio') return Promise.resolve(undefined)
       if (command === 'transcribe_audio') return Promise.reject('startup failed')
       return Promise.resolve(undefined)
@@ -369,7 +406,7 @@ describe('useTranscriptStore', () => {
 
   it('does not regenerate when current audio recordings cannot be deleted', async () => {
     const transcript = useTranscriptStore()
-    invokeMock.mockImplementation((command: string) => {
+    stubInvoke((command: string) => {
       if (command === 'delete_recordings_for_audio') return Promise.reject('delete failed')
       return Promise.resolve(undefined)
     })
@@ -596,5 +633,94 @@ describe('useTranscriptStore', () => {
     expect(transcript.transcribeStatus).toBe('Transcription failed')
     expect(transcript.isTranscribing).toBe(false)
     expect(transcript.activeTranscribeJobId).toBe(null)
+  })
+
+  it('does not start transcription when required models are missing', async () => {
+    stubMissingModels()
+    const transcript = useTranscriptStore()
+    const app = useAppStore()
+    transcript.sentences = [sentence({ id: 7, en: 'Old cached subtitle.' })]
+
+    await transcript.startTranscribe('/tmp/current.mp3')
+
+    expect(transcript.currentAudioPath).toBe('/tmp/current.mp3')
+    expect(transcript.sentences).toEqual([])
+    expect(transcript.needsModelSetup).toBe(true)
+    expect(transcript.isTranscribing).toBe(false)
+    expect(transcript.transcribeError).toBeNull()
+    expect(app.toast).toBe('')
+    expect(invokeMock).not.toHaveBeenCalledWith('transcribe_audio', expect.anything())
+  })
+
+  it('auto-starts transcription once required models become available', async () => {
+    stubMissingModels()
+    const transcript = useTranscriptStore()
+    await transcript.startTranscribe('/tmp/current.mp3')
+    expect(transcript.needsModelSetup).toBe(true)
+
+    stubInvoke(() => 15)
+    const models = useModelDownloadStore()
+    models.downloadedModels = { ...INSTALLED_MODELS }
+    await flushPromises()
+    await flushPromises()
+
+    expect(invokeMock).toHaveBeenCalledWith('transcribe_audio', expect.objectContaining({
+      audioPath: '/tmp/current.mp3',
+    }))
+    expect(transcript.isTranscribing).toBe(true)
+  })
+
+  it('enters model setup when transcription fails because a model file is missing', async () => {
+    const transcript = useTranscriptStore()
+    const app = useAppStore()
+    stubInvoke((command: string) => {
+      if (command === 'transcribe_audio') {
+        return Promise.reject('Whisper model not found at /tmp/ggml-base.en.bin')
+      }
+      return Promise.resolve(undefined)
+    })
+
+    await transcript.startTranscribe('/tmp/current.mp3')
+
+    expect(transcript.needsModelSetup).toBe(true)
+    expect(transcript.transcribeError).toBeNull()
+    expect(transcript.isTranscribing).toBe(false)
+    expect(app.toast).toBe('')
+  })
+
+  it('keeps startup failures that are not missing models as transcription errors', async () => {
+    const transcript = useTranscriptStore()
+    const app = useAppStore()
+    stubInvoke((command: string) => {
+      if (command === 'transcribe_audio') return Promise.reject('startup failed')
+      return Promise.resolve(undefined)
+    })
+
+    await transcript.startTranscribe('/tmp/current.mp3')
+
+    expect(transcript.needsModelSetup).toBe(false)
+    expect(transcript.transcribeError).toBe('startup failed')
+    expect(transcript.transcribeStatus).toBe('Transcription failed')
+    expect(app.toast).toBe('startup failed')
+    expect(app.toastType).toBe('error')
+  })
+
+  it('treats matching missing-model events as setup instead of a transcription error', () => {
+    const transcript = useTranscriptStore()
+    const app = useAppStore()
+    transcript.currentAudioPath = '/tmp/current.mp3'
+    transcript.activeTranscribeJobId = 3
+    transcript.isTranscribing = true
+
+    transcript.applyTranscribeError({
+      job_id: 3,
+      audio_path: '/tmp/current.mp3',
+      error: 'VAD model not found at /tmp/silero_vad.onnx',
+    })
+
+    expect(transcript.needsModelSetup).toBe(true)
+    expect(transcript.transcribeError).toBeNull()
+    expect(transcript.isTranscribing).toBe(false)
+    expect(app.toast).toBe('')
   })
 })

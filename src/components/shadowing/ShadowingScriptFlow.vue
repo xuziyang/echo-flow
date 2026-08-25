@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch, type ComponentPublicInstance } from 'vue'
+import { toErrorMessage } from '../../utils/errors'
 import { useAppStore } from '../../stores/useAppStore'
 import { usePlayerStore } from '../../stores/usePlayerStore'
 import { useRecordingStore } from '../../stores/useRecordingStore'
@@ -114,6 +115,14 @@ function onRegenKeydown(e: KeyboardEvent) {
 function retryTranscribe() {
   if (!transcript.currentAudioPath) return
   void transcript.startTranscribe(transcript.currentAudioPath)
+}
+
+async function requestRequiredModels() {
+  try {
+    await modelDownload.downloadRequiredModels()
+  } catch (error) {
+    app.showSubtitleToast(toErrorMessage(error), 'error')
+  }
 }
 
 function onDocumentClick() {
@@ -232,6 +241,23 @@ onUnmounted(() => {
         <div style="font-size: 12px; color: var(--text2)">生成完成后即可开始练习</div>
       </div>
     </div>
+    <div v-else-if="transcript.needsModelSetup && !transcript.sentences.length" class="sub-state">
+      <div class="state-card">
+        <div class="t">字幕需要先下载模型（约 520 MB，只需一次）</div>
+        <p>现在可以先听音频；下完后会自动生成字幕。</p>
+        <div v-if="modelDownload.isDownloading">
+          <div class="meter"><i :style="{ width: `${Math.max(3, Math.min(100, modelDownload.downloadProgressPercent))}%` }"></i></div>
+          <div class="row">
+            <span style="font-size: 12.5px; color: var(--text2)">{{ modelDownload.downloadProgressPercent.toFixed(0) }}%</span>
+            <button class="btn" style="padding: 3px 9px; font-size: 12px" @click="modelDownload.cancelDownload()">取消</button>
+          </div>
+        </div>
+        <div v-else class="row">
+          <button class="btn btn-primary" @click="requestRequiredModels">下载还缺的模型</button>
+          <button class="btn" @click="app.openSettings('models')">打开设置</button>
+        </div>
+      </div>
+    </div>
     <div v-else-if="transcript.transcribeError && !transcript.sentences.length" class="sub-state">
       <div class="state-card err">
         <div class="t">无法生成字幕</div>
@@ -255,7 +281,7 @@ onUnmounted(() => {
           @click="selectSentence(index, item)"
         />
       </template>
-      <div v-else-if="!transcript.isTranscribing && !transcript.transcribeError" class="sub-empty">
+      <div v-else-if="!transcript.isTranscribing && !transcript.transcribeError && !transcript.needsModelSetup" class="sub-empty">
         导入音频后自动生成字幕<br>点击句子可跳转播放
       </div>
     </div>

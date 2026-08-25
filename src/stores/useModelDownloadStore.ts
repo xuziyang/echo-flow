@@ -22,6 +22,9 @@ export interface DownloadProgress {
   percent: number
 }
 
+export const REQUIRED_SUPPORT_MODELS: ModelType[] = ['vad', 'alignment']
+export const RECOMMENDED_BUNDLE_MODELS: ModelType[] = ['whisper-base', 'vad', 'alignment']
+
 const installedKeyByType: Record<ModelType, keyof DownloadedModels> = {
   'whisper-tiny': 'whisperTiny',
   'whisper-base': 'whisperBase',
@@ -45,6 +48,7 @@ export const useModelDownloadStore = defineStore('modelDownload', () => {
   const currentDownloadId = ref<number | null>(null)
   const downloadProgress = ref<DownloadProgress | null>(null)
   const downloadProgressPercent = ref(0)
+  const bundleQueue = ref<ModelType[]>([])
 
   const whisperModelTypes: WhisperModelType[] = [
     'whisper-tiny',
@@ -52,6 +56,16 @@ export const useModelDownloadStore = defineStore('modelDownload', () => {
     'whisper-small',
     'whisper-medium',
   ]
+
+  const requiredModelTypes = computed<ModelType[]>(() => [
+    settings.selectedWhisperModel,
+    ...REQUIRED_SUPPORT_MODELS,
+  ])
+  const missingRequiredModels = computed(() => (
+    requiredModelTypes.value.filter(type => !isModelInstalled(type))
+  ))
+  const areRequiredModelsInstalled = computed(() => missingRequiredModels.value.length === 0)
+  const isDownloading = computed(() => downloadingType.value !== null)
 
   async function checkModels() {
     downloadedModels.value = await invoke<DownloadedModels>('list_downloaded_models', {
@@ -77,7 +91,11 @@ export const useModelDownloadStore = defineStore('modelDownload', () => {
   }
 
   async function cancelDownload() {
-    if (currentDownloadId.value === null) return
+    bundleQueue.value = []
+    if (currentDownloadId.value === null) {
+      resetDownloadState()
+      return
+    }
 
     const downloadId = currentDownloadId.value
     await invoke('cancel_download', { downloadId })
@@ -90,6 +108,45 @@ export const useModelDownloadStore = defineStore('modelDownload', () => {
       modelDir: settings.modelDirectory || null,
     })
     await checkModels()
+  }
+
+  async function startModelBundle(types: ModelType[]): Promise<{ started: boolean; count: number }> {
+    if (isDownloading.value) return { started: false, count: 0 }
+
+    const missing = types.filter(type => !isModelInstalled(type))
+    if (!missing.length) return { started: false, count: 0 }
+
+    const [first, ...rest] = missing
+    bundleQueue.value = rest
+    try {
+      await downloadModel(first)
+    } catch (error) {
+      await continueModelBundle()
+      throw error
+    }
+    return { started: true, count: missing.length }
+  }
+
+  async function continueModelBundle() {
+    if (isDownloading.value) return
+
+    const [next, ...rest] = bundleQueue.value
+    if (!next) return
+
+    bundleQueue.value = rest
+    try {
+      await downloadModel(next)
+    } catch {
+      await continueModelBundle()
+    }
+  }
+
+  function downloadRequiredModels() {
+    return startModelBundle(missingRequiredModels.value)
+  }
+
+  function downloadRecommendedBundle() {
+    return startModelBundle(RECOMMENDED_BUNDLE_MODELS)
   }
 
   function ensureSelectedWhisperModelIsInstalled() {
@@ -122,11 +179,19 @@ export const useModelDownloadStore = defineStore('modelDownload', () => {
     downloadProgressPercent,
     downloadingType,
     currentDownloadId,
-    isDownloading: computed(() => downloadingType.value !== null),
+    bundleQueue,
+    isDownloading,
+    requiredModelTypes,
+    missingRequiredModels,
+    areRequiredModelsInstalled,
     checkModels,
     downloadModel,
     cancelDownload,
     deleteModel,
+    startModelBundle,
+    continueModelBundle,
+    downloadRequiredModels,
+    downloadRecommendedBundle,
     isModelInstalled,
     resetDownloadState,
   }

@@ -1,7 +1,9 @@
 // src/composables/useDownloadEvents.ts
 import { onUnmounted } from 'vue'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
+import { useAppStore } from '../stores/useAppStore'
 import { useModelDownloadStore } from '../stores/useModelDownloadStore'
+import { toErrorMessage } from '../utils/errors'
 
 export interface DownloadProgressEvent {
   downloadId: number
@@ -29,6 +31,7 @@ export interface DownloadCanceledEvent {
 }
 
 export function useDownloadEvents() {
+  const app = useAppStore()
   const modelStore = useModelDownloadStore()
   const unlisteners: UnlistenFn[] = []
 
@@ -46,13 +49,16 @@ export function useDownloadEvents() {
       async () => {
         modelStore.resetDownloadState()
         await modelStore.checkModels()
+        await modelStore.continueModelBundle()
       },
     )
 
     const unlistenError = await listen<DownloadErrorEvent>(
       'download-error',
-      () => {
+      (event) => {
         modelStore.resetDownloadState()
+        app.showSubtitleToast(toErrorMessage(event.payload.error), 'error')
+        void modelStore.continueModelBundle()
       },
     )
 

@@ -26,6 +26,7 @@ const trackName = computed(() => {
 
 const statusLabel = computed(() => {
   if (transcript.isTranscribing) return `正在生成字幕 ${Math.round(transcript.transcribeProgress)}%`
+  if (transcript.needsModelSetup && !transcript.sentences.length) return '可先听音频'
   if (transcript.transcribeError && !transcript.sentences.length) return '字幕生成失败'
   if (player.isPlaying) return '播放中'
   if (player.positionMs > 0) return '已暂停'
@@ -33,6 +34,7 @@ const statusLabel = computed(() => {
 })
 const statusClass = computed(() => {
   if (transcript.isTranscribing) return 'warn'
+  if (transcript.needsModelSetup && !transcript.sentences.length) return 'warn'
   if (transcript.transcribeError && !transcript.sentences.length) return 'err'
   if (player.isPlaying) return 'playing'
   return ''
@@ -134,6 +136,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
       <div class="sentence-big">
         <template v-if="currentSentence?.en">“<MaskableText :text="currentSentence.en" :masked="maskText" />”</template>
         <template v-else-if="transcript.isTranscribing">正在生成字幕…</template>
+        <template v-else-if="transcript.needsModelSetup">可先听音频，下载模型后将自动生成字幕</template>
         <template v-else>暂无字幕</template>
       </div>
       <div class="sentence-idx">

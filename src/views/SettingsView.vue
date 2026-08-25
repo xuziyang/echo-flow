@@ -51,7 +51,6 @@ const currentSectionLabel = computed(() => (
 ))
 
 let modelDirectoryCheckTimer: ReturnType<typeof setTimeout> | null = null
-const bundleQueue = ref<ModelType[]>([])
 
 function onKeydown(e: KeyboardEvent) {
   if (e.key !== 'Escape') return
@@ -73,7 +72,6 @@ function requestDelete(type: ModelType) {
 }
 
 function requestCancelDownload() {
-  bundleQueue.value = []
   void modelDownload.cancelDownload()
 }
 
@@ -82,26 +80,18 @@ function setDefaultWhisperModel(type: WhisperModelType) {
 }
 
 /** 推荐配置一键下载：缺什么下什么，同时只下一个，自动排队 */
-function downloadBundle() {
-  const missing = (['whisper-base', 'vad', 'alignment'] as ModelType[])
-    .filter(type => !modelDownload.isModelInstalled(type))
-  if (!missing.length) {
-    app.showSubtitleToast('推荐配置已全部安装 ✓')
-    return
+async function downloadBundle() {
+  try {
+    const result = await modelDownload.downloadRecommendedBundle()
+    if (!result.started) {
+      app.showSubtitleToast('推荐配置已全部安装 ✓')
+      return
+    }
+    app.showSubtitleToast(`开始下载 ${result.count} 个模型（同时只下一个，自动排队）`)
+  } catch (error) {
+    showError(error)
   }
-  bundleQueue.value = missing
-  app.showSubtitleToast(`开始下载 ${missing.length} 个模型（同时只下一个，自动排队）`)
-  const [first] = bundleQueue.value
-  if (!modelDownload.isDownloading && first) requestDownload(first)
 }
-
-watch(() => modelDownload.isDownloading, (isDownloading) => {
-  if (isDownloading || bundleQueue.value.length === 0) return
-  // 上一个下载结束（完成或失败），继续队列中的下一个
-  bundleQueue.value.shift()
-  const next = bundleQueue.value[0]
-  if (next) requestDownload(next)
-})
 
 async function chooseModelFolder() {
   const selected = await open({

@@ -97,20 +97,10 @@ describe('useRecordingStore', () => {
   })
 
   it('plays the current sentence first when starting comparison playback', async () => {
+    seedCurrentSentence()
     const player = usePlayerStore()
     player.clearSentenceSegment = vi.fn().mockResolvedValue(undefined)
     player.playSentenceSegment = vi.fn().mockResolvedValue(true)
-
-    const transcript = useTranscriptStore()
-    transcript.sentences = [{
-      id: 1,
-      en: 'hello world',
-      status: 'saved',
-      dirty: false,
-      issues: [],
-      start_ms: 500,
-      end_ms: 1500,
-    }]
 
     const recording = useRecordingStore()
     recording.userAudioUrl = 'blob:recording'

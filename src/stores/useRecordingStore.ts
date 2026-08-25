@@ -579,13 +579,15 @@ export const useRecordingStore = defineStore('recording', () => {
     if (isPlaybackBusy()) return false
 
     const { startMs, endMs } = getCurrentSentenceTiming()
-    const startedOriginal = await player.playSentenceSegment(startMs, endMs)
-    if (!startedOriginal && showMissingTimestampToast) {
-      app.showSubtitleToast('当前句缺少时间戳，无法播放原音', 'error')
+    // 仅当真的缺少时间戳时提示；播放中被取消也返回 false，但属于正常中断，不提示
+    if (!player.canPlaySentenceSegment(startMs, endMs)) {
+      if (showMissingTimestampToast) {
+        app.showSubtitleToast('当前句缺少时间戳，无法播放原音', 'error')
+      }
       return false
     }
 
-    return startedOriginal
+    return await player.playSentenceSegment(startMs, endMs)
   }
 
   async function playComparisonOnce(options?: { waitForRecordingEnd?: boolean, allowDuringLoop?: boolean }) {
@@ -597,10 +599,16 @@ export const useRecordingStore = defineStore('recording', () => {
 
     comparisonActive.value = true
     const { startMs, endMs } = getCurrentSentenceTiming()
+    // 仅当真的缺少时间戳时提示；对照第一阶段被取消也返回 false，属于正常中断，不提示
+    if (!player.canPlaySentenceSegment(startMs, endMs)) {
+      comparisonActive.value = false
+      app.showSubtitleToast('当前句缺少时间戳，无法播放原音对比', 'error')
+      return false
+    }
+
     const startedOriginal = await player.playSentenceSegment(startMs, endMs)
     if (!startedOriginal) {
       comparisonActive.value = false
-      app.showSubtitleToast('当前句缺少时间戳，无法播放原音对比', 'error')
       return false
     }
 

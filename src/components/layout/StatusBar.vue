@@ -28,7 +28,7 @@ const statusLabel = computed(() => {
 const hints = computed(() => (
   app.mode === 'listening'
     ? 'Space 播放/暂停 · H 遮蔽文本'
-    : 'Space 原音 · R 录音 · C 对照 · ← → 切句 · Esc 返回'
+    : 'Space 原音 · R 录音 · P 回放 · C 对照 · ← → 切句 · Esc 返回'
 ))
 </script>
 

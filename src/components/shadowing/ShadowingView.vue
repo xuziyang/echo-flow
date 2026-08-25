@@ -46,7 +46,8 @@ function onKeydown(e: KeyboardEvent) {
       break
     case 'Space':
       e.preventDefault()
-      if (recording.activeLoopMode || recording.comparisonActive) {
+      // 原音 / 循环 / 对照播放中再按 = 停止
+      if (recording.activeLoopMode || recording.comparisonActive || player.isPlaying) {
         void recording.stopPlayback()
         return
       }
@@ -57,6 +58,16 @@ function onKeydown(e: KeyboardEvent) {
       e.preventDefault()
       if (isBusy.value && !recording.isRecording) return
       void recording.toggleRecording()
+      break
+    case 'KeyP':
+      e.preventDefault()
+      // 回放中再按 = 停止；其余忙碌状态忽略
+      if (recording.activePlaybackMode === 'recording') {
+        void recording.stopPlayback()
+        return
+      }
+      if (isBusy.value || !recording.hasRecording) return
+      void recording.playUserRecording()
       break
     case 'KeyC':
       e.preventDefault()

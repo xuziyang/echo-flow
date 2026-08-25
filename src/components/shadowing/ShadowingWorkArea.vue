@@ -47,6 +47,17 @@ const cmpStep = computed(() => {
   return 0
 })
 
+/* 各按钮激活态：驱动高亮样式，并让激活按钮保持可点（再按即停） */
+const originalActive = computed(() => (
+  (player.isPlaying || recording.activeLoopMode === 'original') && !recording.comparisonActive
+))
+const playbackActive = computed(() => recording.activePlaybackMode === 'recording')
+const compareActive = computed(() => (
+  recording.comparisonActive
+  || recording.activePlaybackMode === 'comparison'
+  || recording.activeLoopMode === 'comparison'
+))
+
 /* 录音计时 */
 const recElapsed = ref(0)
 let recTimer: ReturnType<typeof setInterval> | null = null
@@ -71,21 +82,29 @@ function gotoSentence(delta: number) {
   player.setCurrentIndex(next)
 }
 
-/* 对照播放中再次点击 = 停止；否则开始播放 */
-function stopComparisonOr(play: () => Promise<void>) {
-  if (recording.comparisonActive) {
+/* 播放类按钮：生效中再次点击 = 停止；否则开始播放 */
+function onPlayOriginal() {
+  if (originalActive.value || compareActive.value) {
     void recording.stopPlayback()
     return
   }
-  void play()
+  void recording.playOriginal()
 }
 
-function onPlayOriginal() {
-  stopComparisonOr(() => recording.playOriginal())
+function onPlayRecording() {
+  if (playbackActive.value) {
+    void recording.stopPlayback()
+    return
+  }
+  void recording.playUserRecording()
 }
 
 function onCompare() {
-  stopComparisonOr(() => recording.playComparison())
+  if (compareActive.value) {
+    void recording.stopPlayback()
+    return
+  }
+  void recording.playComparison()
 }
 
 onUnmounted(() => {
@@ -134,7 +153,8 @@ onUnmounted(() => {
     <div class="ctl-bar" :class="{ recording: recording.isRecording }">
       <button
         class="ctl"
-        :disabled="!canPlayOriginal && !recording.comparisonActive"
+        :class="{ 'loop-on': originalActive }"
+        :disabled="!canPlayOriginal && !originalActive && !compareActive"
         @click="onPlayOriginal"
       >
         <Icon name="play" :size="15" :stroke-width="1.8" />
@@ -149,12 +169,18 @@ onUnmounted(() => {
         <Icon :name="recording.isRecording ? 'stop' : 'microphone'" :size="15" :stroke-width="1.8" />
         {{ recording.isRecording ? '停录' : '录音' }} <kbd>R</kbd>
       </button>
-      <button class="ctl" :disabled="!canPlayRecording" @click="recording.playUserRecording()">
-        <Icon name="rotate-left" :size="15" :stroke-width="1.8" /> 回放
+      <button
+        class="ctl"
+        :class="{ 'mine-on': playbackActive }"
+        :disabled="!canPlayRecording && !playbackActive"
+        @click="onPlayRecording"
+      >
+        <Icon name="rotate-left" :size="15" :stroke-width="1.8" /> 回放 <kbd>P</kbd>
       </button>
       <button
         class="ctl"
-        :disabled="!canCompare && !recording.comparisonActive"
+        :class="{ 'loop-on': compareActive }"
+        :disabled="!canCompare && !compareActive"
         @click="onCompare"
       >
         <Icon name="code-compare" :size="15" :stroke-width="1.8" />

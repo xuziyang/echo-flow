@@ -80,8 +80,6 @@ function onKeydown(e: KeyboardEvent) {
 onMounted(() => {
   void player.clearSentenceSegment({ pausePlayback: true })
   window.addEventListener('keydown', onKeydown)
-  // 进入跟读即播一次当前句原音
-  playSentenceAtIndex(player.currentIndex)
 })
 
 watch(() => player.currentIndex, async (index) => {

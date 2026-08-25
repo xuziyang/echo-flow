@@ -7,6 +7,7 @@ import Icon from '../Icon.vue'
 
 const app = useAppStore()
 const isWindows = ref(platform() === 'windows')
+const isMac = ref(platform() === 'macos')
 const isMaximized = ref(false)
 
 const win = getCurrentWindow()
@@ -44,8 +45,15 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <header class="titlebar" @mousedown="startDrag">
-    <div class="logo"><span class="dot"></span>echo-flow</div>
+  <header class="titlebar" :class="{ macos: isMac }" @mousedown="startDrag">
+    <div class="logo">
+      <svg class="logo-mark" width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+        <circle cx="4.2" cy="9" r="2.8" fill="var(--accent)" />
+        <path d="M9.5 5.6a4.2 4.2 0 0 1 0 6.8" stroke="var(--accent)" stroke-width="1.7" stroke-linecap="round" />
+        <path d="M12.6 3.4a7 7 0 0 1 0 11.2" stroke="var(--accent)" stroke-width="1.7" stroke-linecap="round" opacity=".45" />
+      </svg>
+      echoflow
+    </div>
 
     <div class="seg" @mousedown.stop>
       <button :class="{ active: app.mode === 'listening' }" @click="app.switchMode('listening')">听力</button>

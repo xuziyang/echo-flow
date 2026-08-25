@@ -65,7 +65,9 @@ pub fn run() {
                 &app.config().app.windows[0],
             )?;
             #[cfg(target_os = "macos")]
-            let builder = builder.title_bar_style(tauri::TitleBarStyle::Overlay);
+            let builder = builder
+                .title_bar_style(tauri::TitleBarStyle::Overlay)
+                .hidden_title(true);
             #[cfg(target_os = "windows")]
             let builder = builder.decorations(false);
             builder.build()?;

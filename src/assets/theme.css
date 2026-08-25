@@ -106,11 +106,16 @@ button:focus-visible, [type=range]:focus-visible, select:focus-visible, textarea
   height: 46px; flex: none; display: flex; align-items: center; gap: 14px; padding: 0 10px 0 16px;
   background: var(--panel); border-bottom: 1px solid var(--border);
 }
-.logo { font-weight: 700; letter-spacing: .3px; display: flex; align-items: center; gap: 8px; }
-.logo .dot {
-  width: 9px; height: 9px; border-radius: 50%; background: var(--accent);
-  box-shadow: 0 0 0 4px var(--accent-dim); /* echo：一圈淡回响 */
+/* macOS：为左上角红绿灯按钮（Overlay 标题栏）预留空间，logo 居中（窗口标题惯例） */
+.titlebar.macos { padding-left: 84px; position: relative; }
+.titlebar.macos .logo {
+  position: absolute; left: 50%; transform: translateX(-50%); pointer-events: none;
 }
+/* logo 脱离文档流后，让模式切换靠右排布 */
+.titlebar.macos .seg { margin-left: auto; }
+.logo { font-weight: 700; letter-spacing: .3px; display: flex; align-items: center; gap: 8px; }
+/* logo 图形：声波涟漪——实心点 + 两圈向右扩散的弧（echo 回响） */
+.logo-mark { display: block; }
 .titlebar .spacer { flex: 1; }
 /* 模式分段控件 */
 .seg { display: flex; background: var(--panel2); border: 1px solid var(--border); border-radius: 9px; padding: 3px; gap: 2px; }

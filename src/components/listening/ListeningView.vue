@@ -103,7 +103,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
       <span class="ls-filename">{{ trackName }}</span>
       <span class="status-badge" :class="statusClass">{{ statusLabel }}</span>
       <button
-        class="btn"
+        class="btn tip-below tip-right"
         style="margin-left: auto"
         data-tip="遮蔽 / 显示文本（H）"
         :disabled="!transcript.sentences.length"

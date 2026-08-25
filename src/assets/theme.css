@@ -100,6 +100,10 @@ button:focus-visible, [type=range]:focus-visible, select:focus-visible, textarea
   padding: 5px 9px; border-radius: 6px; white-space: nowrap; z-index: 80;
   border: 1px solid #33363f; pointer-events: none;
 }
+/* 变体：tip-below 向下弹出（贴顶部的按钮，避免被 .view 滚动容器裁剪） */
+[data-tip].tip-below:hover::after { bottom: auto; top: calc(100% + 8px); }
+/* 变体：tip-right 右对齐（靠右的按钮，避免超出容器右缘被裁剪） */
+[data-tip].tip-right:hover::after { left: auto; right: 0; transform: none; }
 
 /* ============ 标题栏 ============ */
 .titlebar {

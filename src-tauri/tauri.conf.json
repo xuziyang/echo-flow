@@ -14,8 +14,10 @@
       {
         "title": "echo-flow",
         "create": false,
-        "width": 1200,
-        "height": 800
+        "width": 1320,
+        "height": 720,
+        "minWidth": 980,
+        "minHeight": 600
       }
     ],
     "security": {
